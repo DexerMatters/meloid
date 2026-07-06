@@ -19,21 +19,29 @@ module Types.Helpers (
   stCurrentSongMeta,
   stCurrentSongPos,
   stShownCurrentTime,
+  stIsProceedingCmd,
+  stCurrentStage,
+  stEditorContent,
   formatSecs,
   (.?),
+  whenM,
 ) where
 
+import Brick.Widgets.Edit qualified as E
+import Control.Applicative (Const)
+import Control.Monad (when)
 import Data.List (sortBy)
 import Data.List.NonEmpty (NonEmpty, fromList)
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Map ((!?))
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Map qualified as Map
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
+import Data.Text.Zipper qualified as TZ
 import Data.Vector qualified as Vec
-import Lens.Micro (to, (<&>), (^.), _Just)
-import Lens.Micro.Type (SimpleGetter)
+import Lens.Micro
 import Network.MPD qualified as MPD
 import Text.Read (readMaybe)
 import Types.Core
+import Types.Identity
 import Types.Model
 
 -- | Size reserved for the large now-playing art slot.
@@ -52,7 +60,9 @@ defaultAlbum =
 -- | Read metadata from a song, providing a stable fallback string.
 songMeta :: MPD.Metadata -> MPD.Song -> NonEmpty String
 songMeta meta song =
-  fromMaybe (pure $ unknown meta) (MPD.sgTags song !? meta <&> fromList . fmap MPD.toString)
+  fromMaybe
+    (pure $ unknown meta)
+    (MPD.sgTags song Map.!? meta <&> fromList . fmap MPD.toString)
  where
   unknown MPD.Artist = "Unknown Artist"
   unknown MPD.Album = "Unknown Album"
@@ -79,7 +89,7 @@ songAlbumArtKey song =
     Just album -> "album:" <> fromMaybe "" (tag MPD.Artist) <> "\0" <> album
     Nothing -> "file:" <> MPD.toString (MPD.sgFilePath song)
  where
-  tag meta = MPD.toString <$> (MPD.sgTags song !? meta >>= listToMaybe)
+  tag meta = MPD.toString <$> (MPD.sgTags song Map.!? meta >>= listToMaybe)
 
 -- | Derive a stable album-art key from an album record.
 albumArtKey :: Album -> AlbumArtKey
@@ -103,13 +113,13 @@ stCurrentAlbum = to $ \st -> do
 stCurrentAlbumArt :: SimpleGetter St (Maybe AlbumArt)
 stCurrentAlbumArt = to $ \st ->
   st ^. stCurrentAlbum >>= \album ->
-    (st ^. stPicCache) !? albumArtKey album
+    (st ^. stPicCache) Map.!? albumArtKey album
 
 -- | The raw metadata of the current song, preserving missingness.
 stCurrentSongMeta' :: MPD.Metadata -> SimpleGetter St (Maybe (NonEmpty MPD.Value))
 stCurrentSongMeta' meta = stPlaying . psCurrentSong . to f
  where
-  f (Just s) = fromList <$> MPD.sgTags s !? meta
+  f (Just s) = fromList <$> MPD.sgTags s Map.!? meta
   f Nothing = Nothing
 
 -- | The position of the current song inside the active queue.
@@ -120,7 +130,7 @@ stCurrentSongPos = stPlaying . psCurrentSong . to (>>= MPD.sgIndex)
 stCurrentSongMeta :: MPD.Metadata -> SimpleGetter St (NonEmpty String)
 stCurrentSongMeta meta = stPlaying . psCurrentSong . to (fromList . f)
  where
-  f (Just s) = fromMaybe [unknown meta] (MPD.sgTags s !? meta <&> fmap MPD.toString)
+  f (Just s) = fromMaybe [unknown meta] (MPD.sgTags s Map.!? meta <&> fmap MPD.toString)
   f Nothing = [unknown meta]
   unknown MPD.Artist = "Unknown Artist"
   unknown MPD.Album = "Unknown Album"
@@ -135,6 +145,22 @@ stShownCurrentTime =
       Just previewTime -> Just previewTime
       Nothing -> st ^. stPlaying . psCurrentTime
 
+-- | Check if a command is in progress.
+stIsProceedingCmd :: SimpleGetter St Bool
+stIsProceedingCmd = stCommandStages . cpsStages . to isJust
+
+stCurrentStage :: SimpleGetter St (Maybe CommandStage)
+stCurrentStage = stCommandStages . cpsStages
+
+stEditorContent ::
+  ( forall r.
+    (E.Editor String (MName St) -> Const r (E.Editor String (MName St))) ->
+    EditSt' St ->
+    Const r (EditSt' St)
+  ) ->
+  SimpleGetter St String
+stEditorContent e = stEdits . e . to (TZ.currentLine . E.editContents)
+
 -- | Format seconds as `m:ss`.
 formatSecs :: Integer -> String
 formatSecs totalSecs = show mins ++ ":" ++ ensureTwoDigits secs
@@ -145,5 +171,11 @@ formatSecs totalSecs = show mins ++ ":" ++ ensureTwoDigits secs
 -- | Lens helper for optional nested fields.
 (.?) :: (Applicative f) => ((Maybe a1 -> f (Maybe a')) -> c) -> (a2 -> a1 -> f a') -> a2 -> c
 a .? b = a . _Just . b
+
+{- | A monad version of `when` whose predicate is a monadic
+boolean.
+-}
+whenM :: (Monad m) => m Bool -> m () -> m ()
+whenM p m = p >>= \b -> when b m
 
 infixr 9 .?

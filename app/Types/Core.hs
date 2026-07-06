@@ -35,6 +35,7 @@ formatMode EditMode = "Edit"
 
 data Event' a
   = Log (LogLevel, String)
+  | InlineOutput (LogLevel, String)
   | RefreshImages
   | UpdateSong (Maybe MPD.Song)
   | UpdateStatus MPD.Status

@@ -18,7 +18,7 @@ import Brick.Types (
   EventM,
  )
 import Brick.Widgets.Edit qualified as E
-import Cmd (execCmd)
+import Cmds
 import Compat.Image qualified as Image
 import Compat.Term qualified as Term
 import Control.Monad (unless, void, when)
@@ -27,7 +27,6 @@ import Data.Foldable (for_)
 import Data.Functor (($>))
 import Data.List (find)
 import Data.Map qualified as Map
-import Data.Text.Zipper qualified as TZ
 import Graphics.Vty qualified as V
 import Lens.Micro
 import Lens.Micro.Mtl
@@ -84,16 +83,28 @@ handleGlobalEvent chan imageService = \case
   VtyEvent (V.EvKey (V.KChar '`') []) ->
     clearCommandEdit >> switchMode $> True
   -- Submit command
-  VtyEvent (V.EvKey V.KEnter []) ->
-    submitCommandEdit >> clearCommandEdit $> True
+  VtyEvent (V.EvKey V.KEnter []) -> do
+    mode <- use stMode
+    if mode == CommandMode
+      then do
+        isProceeding <- use stIsProceedingCmd
+        if isProceeding
+          then
+            nextCommandStage $> True
+          else do
+            command <- use $ stEditorContent esCommand
+            applyCommand command
+            clearCommandEdit
+            use stCurrentStage >>= \case
+              Just (ExecutionStage _) ->
+                nextCommandStage $> True
+              Just (InputStage _ _ _) ->
+                pure True
+              _ ->
+                pure True
+      else pure False
   _ ->
     pure False
- where
-  submitCommandEdit =
-    use (stEdits . esCommand . to (TZ.currentLine . E.editContents)) >>= execCmd
-
-  clearCommandEdit =
-    stEdits . esCommand %= E.applyEdit (const (TZ.stringZipper [] Nothing))
 
 -- | The function that handles the app events.
 handleAppEvent :: BChan Event -> Image.ImageService -> Event -> EventM (MName St) St ()
@@ -103,6 +114,8 @@ handleAppEvent chan imageService = \case
     when (fst entry == Error) $
       panic >> switchViewAndSyncImages chan imageService DebugView
     stLogs %= (entry :)
+  InlineOutput output ->
+    stInlineOutput .= output
   -- Refresh images. It is important when images are in a
   -- dynamic widget such like a scrollable viewport
   RefreshImages ->

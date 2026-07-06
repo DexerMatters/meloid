@@ -154,7 +154,11 @@ instance Drawable St ForwardButton where
   handlesMouseLeftUp _ = True
   onMouseLeftUp _ _ = do
     stPlaying . psPaused .= False
-    sendRequest $ MPDOperation [MPD.next]
+    -- Prevent exceed the playing queue
+    current <- use $ stPlaying . psCurrentSong
+    case current of
+      Nothing -> pure ()
+      Just _ -> sendRequest $ MPDOperation [MPD.next]
   parent _ = Just (ParentView MainView)
 
 instance Drawable St IncreaseVolumeButton where

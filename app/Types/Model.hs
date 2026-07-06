@@ -16,10 +16,17 @@ module Types.Model (
   St (..),
   Event,
   EditSt,
+  Command (..),
   PaintedScene,
+  CommandStage,
+  CommandStage' (..),
+  CommandProceedingSt,
+  CommandProceedingSt' (..),
   -- St lenses
   stEdits,
+  stInlineOutput,
   stPressed,
+  stCommandStages,
   stSongProgressPreview,
   stLastRightPressed,
   stCurrentView,
@@ -50,6 +57,10 @@ module Types.Model (
   psPaused,
   -- EditSt' lenses
   esCommand,
+  -- CommandProceedingSt' lenses
+  cpsCommand,
+  cpsStages,
+  cpsParameters,
   -- Environment lenses
   envTermType,
   envImageFormat,
@@ -69,13 +80,18 @@ import Network.MPD qualified as MPD
 import Types.Core
 import Types.Identity (MName, ViewName)
 
--- | State for a simple text dialog.
-data DialogSt = DialogSt
-  { _dsPage :: Int
-  , _dsText :: String
-  }
-
-makeLenses ''DialogSt
+{- | A stage of a command.
+| A command can have multiple stages.
+-}
+data CommandStage' st
+  = ExecutionStage ([String] -> EventM (MName st) st (Either String String))
+  | InputStage
+      -- | The hint of the input.
+      String
+      -- | The validation function.
+      (String -> Either String ())
+      -- | Next stage.
+      (CommandStage' st)
 
 -- | An album aggregate used by the library browser.
 data Album = Album
@@ -91,6 +107,22 @@ data Playlist = Playlist
   { playlistName :: MPD.PlaylistName
   , playlistSongs :: [MPD.Song]
   }
+
+data CommandProceedingSt' st = CommandProceedingSt
+  { _cpsCommand :: String
+  , _cpsStages :: Maybe (CommandStage' st)
+  , _cpsParameters :: [String]
+  }
+
+makeLenses ''CommandProceedingSt'
+
+-- | State for a simple text dialog.
+data DialogSt = DialogSt
+  { _dsPage :: Int
+  , _dsText :: String
+  }
+
+makeLenses ''DialogSt
 
 -- | Static and semi-static configuration loaded from MPD.
 data ConfigSt = ConfigSt
@@ -113,7 +145,7 @@ data PlayingSt = PlayingSt
 
 makeLenses ''PlayingSt
 
--- | Editor state parameterized by the application state type.
+-- | Editor state
 data EditSt' st = EditSt
   { _esCommand :: E.Editor String (MName st)
   }
@@ -132,7 +164,9 @@ makeLenses ''Environment
 data St
   = St
   { _stEdits :: EditSt' St
+  , _stInlineOutput :: (LogLevel, String)
   , _stPressed :: Maybe (MName St)
+  , _stCommandStages :: CommandProceedingSt' St
   , _stSongProgressPreview :: Maybe (Double, Double)
   , _stLastRightPressed :: Maybe (MName St)
   , _stCurrentView :: Maybe ViewName
@@ -157,6 +191,16 @@ makeLenses ''St
 type Event = Event' ConfigSt
 
 type EditSt = EditSt' St
+
+type CommandStage = CommandStage' St
+
+type CommandProceedingSt = CommandProceedingSt' St
+
+data Command = Command
+  { cmdName :: String
+  , cmdDescription :: String
+  , cmdStages :: CommandStage
+  }
 
 -- | The currently painted out-of-band image scene.
 type PaintedScene = Map.Map (MName St) (Extent (MName St), RenderedImage)

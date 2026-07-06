@@ -30,8 +30,8 @@ executable meloid
         Attrs
         Sys
         Image
-        Cmd
         Types
+        Cmds
         Types.Identity
         Types.Core
         Types.Model
@@ -52,7 +52,7 @@ executable meloid
 
     -- other-extensions:
     build-depends:    
-        base ^>=4.20.2.0, 
+        base >= 4.20.1 && < 5.0,
         mtl,
         containers,
         directory,

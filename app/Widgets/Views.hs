@@ -23,7 +23,7 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Vector qualified as Vec
-import Lens.Micro ((^.), (^?))
+import Lens.Micro
 import Network.MPD qualified as MPD
 import Types
 import Widgets.Common
@@ -129,13 +129,8 @@ instance Drawable St DebugViewport where
       W.vBox $
         W.str "Debug view\n\n"
           : reverse
-            [ W.withAttr (attrName attrStyle) $ W.strWrap msg
+            [ W.withAttr (logAttr logLevel) $ W.strWrap msg
             | (logLevel, msg) <- st ^. stLogs
-            , let attrStyle = case logLevel of
-                    Debug -> "debugLog"
-                    Info -> "infoLog"
-                    Warn -> "warnLog"
-                    Error -> "errorLog"
             ]
   parent _ = Just (ParentView DebugView)
   handlesMouseScrollUp _ = True
@@ -151,7 +146,9 @@ drawAlbumSongList st =
       W.vBox
         [ W.hBox
             [ withAttr (attrName "label") (W.str " TRACKS ")
-            , W.padLeft W.Max $ withAttr (attrName "meta") $ W.str $ album
+            , W.padLeft W.Max $
+                withAttr (attrName "meta") . W.hLimitPercent 80 $
+                  strClippedWithEllipsis album
             ]
         , drawNamed st AlbumSongList
         ]
@@ -184,7 +181,7 @@ drawControlPanel st =
               , drawNamed st DecreaseVolumeButton
               ]
           , W.vBox
-              [ W.str $ "TIME " <> formatSecs (floor elapsed) <> "/" <> formatSecs (floor total)
+              [ W.str $ "TIME " <> formatSecs (floor elapsed) <> "/" <> formatSecs (ceiling total)
               , W.hBox
                   [ W.str $ "VOL  " <> show (st ^. stConfig . csVolume) <> "%"
                   , W.padLeft W.Max $ drawNamed st RewindButton
@@ -215,11 +212,32 @@ drawBottomBar st =
   W.vLimit 1 $
     W.hBox
       [ withAttr (attrName "bottomLabel") $
-          W.padLeftRight 1 . W.str . formatMode $
-            mode
-      , drawIfCmd $ drawNamed st CommandEditor
+          W.padLeftRight 1 $
+            W.str (formatMode mode)
+      , case mode of
+          CommandMode ->
+            W.hBox
+              [ withAttr (attrName "label") $ W.str $ commandLabel command stage
+              , W.padLeft (W.Pad 1) $ drawNamed st CommandEditor
+              ]
+          -- TODO: `strWrap` contradicts with `W.vLimit 1`.
+          -- It is recommended to make the bottom bar multi-line in case
+          -- that the content is too long.
+          NormalMode -> W.padLeft (W.Pad 1) $ withAttr (logAttr logLevel) $ W.strWrap content
+          EditMode -> W.emptyWidget
       ]
  where
   mode = st ^. stMode
-  isCommand = mode == CommandMode
-  drawIfCmd w = if isCommand then w else W.emptyWidget
+  (logLevel, content) = st ^. stInlineOutput
+  command
+    | st ^. stIsProceedingCmd = st ^. stCommandStages . cpsCommand
+    | otherwise = ""
+  stage =
+    st ^. stCurrentStage & \case
+      Just (InputStage s _ _) -> s
+      _ -> ""
+  commandLabel cmd currentStage
+    | null cmd && null currentStage = ""
+    | null cmd = "/" <> currentStage <> ": "
+    | null currentStage = cmd
+    | otherwise = cmd <> "/" <> currentStage <> ": "

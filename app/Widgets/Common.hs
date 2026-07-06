@@ -15,6 +15,7 @@ module Widgets.Common (
   drawSongRow,
   makeBar,
   makeBar',
+  logAttr,
   openMenu,
   scrollViewportBy,
   strClippedWithEllipsis,
@@ -107,6 +108,14 @@ pressedAttr :: St -> MName St -> AttrName
 pressedAttr st name
   | st ^. stPressed == Just name = attrName "pressed"
   | otherwise = mempty
+
+logAttr :: LogLevel -> AttrName
+logAttr =
+  attrName . \case
+    Debug -> "debugLog"
+    Info -> "infoLog"
+    Warn -> "warnLog"
+    Error -> "errorLog"
 
 {- | Draws a string with ellipsis if it is too long.
 "Too long" means there is no room for it in the available width.

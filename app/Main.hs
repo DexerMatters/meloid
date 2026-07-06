@@ -89,7 +89,14 @@ defaultSt =
         EditSt
           { _esCommand = (E.editor (mName CommandEditor) Nothing "")
           }
+    , _stInlineOutput = (Info, "")
     , _stPressed = Nothing
+    , _stCommandStages =
+        CommandProceedingSt
+          { _cpsCommand = ""
+          , _cpsStages = Nothing
+          , _cpsParameters = []
+          }
     , _stSongProgressPreview = Nothing
     , _stLastRightPressed = Nothing
     , _stCurrentView = Nothing
