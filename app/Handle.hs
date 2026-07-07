@@ -86,26 +86,7 @@ handleGlobalEvent chan imageService = \case
   -- Toggle modes. See `Mode` for details
   VtyEvent (V.EvKey (V.KChar '`') []) ->
     clearCommandEdit >> switchMode $> True
-  -- Escape to return to NormalMode from CommandMode or EditMode
-  VtyEvent (V.EvKey V.KEsc []) -> do
-    mode <- use stMode
-    if mode /= NormalMode
-      then do
-        stMode .= NormalMode
-        clearCommandEdit
-        clearCommandStages
-        pure True
-      else pure False
-  -- Colon to enter CommandMode from NormalMode
-  VtyEvent (V.EvKey (V.KChar ':') []) -> do
-    mode <- use stMode
-    if mode == NormalMode
-      then do
-        stMode .= CommandMode
-        clearCommandEdit
-        clearCommandStages
-        pure True
-      else pure False
+
   -- Submit command
   VtyEvent (V.EvKey V.KEnter []) -> do
     mode <- use stMode
