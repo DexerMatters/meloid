@@ -13,7 +13,7 @@ module Compat.Locations (
 import Control.Exception
 import Control.Monad (when)
 import System.Directory
-import Types.Config (defaultConfigStr)
+import Types.Helpers
 
 {- | Prepare the album art cache directory.
 The directory is responsible for storing album art so that

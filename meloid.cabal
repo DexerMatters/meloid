@@ -39,7 +39,7 @@ executable meloid
         Types.Identity
         Types.Core
         Types.Model
-        Types.Config
+        Types.Schemas
         Types.Helpers
         Types.Actions
         Types.Logging
