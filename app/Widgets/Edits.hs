@@ -16,7 +16,7 @@ data CommandEditor = CommandEditor
 
 instance Drawable St CommandEditor where
   draw _ st =
-    W.hLimit 10
+    W.hLimitPercent 100
       $ E.renderEditor
         (str . unlines)
         (st ^. stMode == CommandMode)

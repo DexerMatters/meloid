@@ -209,35 +209,35 @@ drawCurrentQueueList st =
 
 drawBottomBar :: St -> Widget (MName St)
 drawBottomBar st =
-  W.vLimit 1 $
-    W.hBox
-      [ withAttr (attrName "bottomLabel") $
-          W.padLeftRight 1 $
-            W.str (formatMode mode)
-      , case mode of
-          CommandMode ->
-            W.hBox
-              [ withAttr (attrName "label") $ W.str $ commandLabel command stage
-              , W.padLeft (W.Pad 1) $ drawNamed st CommandEditor
-              ]
-          -- TODO: `strWrap` contradicts with `W.vLimit 1`.
-          -- It is recommended to make the bottom bar multi-line in case
-          -- that the content is too long.
-          NormalMode -> W.padLeft (W.Pad 1) $ withAttr (logAttr logLevel) $ W.strWrap content
-          EditMode -> W.emptyWidget
-      ]
+  withAttr (attrName "bottomBar") $
+    W.vLimit 1 $
+      W.hBox
+        [ withAttr (attrName "bottomLabel") $
+            W.padLeftRight 1 $
+              W.str (formatMode mode)
+        , case mode of
+            CommandMode ->
+              W.hBox
+                [ drawStage
+                , W.padLeft (W.Pad 1) $ drawNamed st CommandEditor
+                ]
+            -- TODO: `strWrap` contradicts with `W.vLimit 1`.
+            -- It is recommended to make the bottom bar multi-line in case
+            -- that the content is too long.
+            NormalMode -> W.padLeft (W.Pad 1) $ withAttr (logAttr logLevel) $ W.strWrap content
+            EditMode -> W.emptyWidget
+        ]
  where
   mode = st ^. stMode
   (logLevel, content) = st ^. stInlineOutput
-  command
-    | st ^. stIsProceedingCmd = st ^. stCommandStages . cpsCommand
-    | otherwise = ""
+  drawStage
+    | null stage = W.emptyWidget
+    | otherwise =
+        withAttr (attrName "meta") . W.padLeft (W.Pad 1) $ W.str $ stageLabel stage
   stage =
     st ^. stCurrentStage & \case
       Just (InputStage s _ _) -> s
       _ -> ""
-  commandLabel cmd currentStage
-    | null cmd && null currentStage = ""
-    | null cmd = "/" <> currentStage <> ": "
-    | null currentStage = cmd
-    | otherwise = cmd <> "/" <> currentStage <> ": "
+  stageLabel currentStage
+    | null currentStage = ""
+    | otherwise = currentStage <> ":"

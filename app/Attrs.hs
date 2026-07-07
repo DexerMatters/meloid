@@ -10,6 +10,7 @@ module Attrs (
 
 import Brick
 import Brick.Themes qualified as T
+import Brick.Widgets.Edit qualified as E
 import Graphics.Vty
 
 a :: String -> AttrName
@@ -35,11 +36,12 @@ defaultTheme =
     , (a "iconButton" <> a "pressed", black `on` accent)
     , (a "focused", white `on` secondary)
     , (a "dialog", primary `on` secondary)
-    , (a "header", currentAttr `withForeColor` primary `withStyle` bold)
+    , (a "header", defAttr `withForeColor` primary `withStyle` bold)
     , (a "label", black `on` accent)
     , (a "bottomLabel", (black `on` accent) `withStyle` bold)
-    , (a "meta", currentAttr `withForeColor` accent `withStyle` italic)
-    , (a "text", currentAttr `withForeColor` accent)
+    , (a "bottomBar", defAttr) -- Stub
+    , (a "meta", defAttr `withForeColor` accent `withStyle` italic)
+    , (a "text", defAttr `withForeColor` accent)
     , (a "scrollBarThumb", currentAttr `withForeColor` accent `withStyle` bold)
     , (a "scrollBarTrack", currentAttr)
     , (a "progressBarIncomplete", black `on` secondary)
@@ -49,6 +51,8 @@ defaultTheme =
     , (a "infoLog", fg $ white)
     , (a "warnLog", fg $ yellow)
     , (a "errorLog", fg $ red)
+    , -- Native widgets
+      (E.editAttr, defAttr `withForeColor` primary `withBackColor` secondary)
     ]
 
 hex2RGB :: Int -> Color
