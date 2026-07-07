@@ -53,7 +53,9 @@ defaultTheme =
 
 hex2RGB :: Int -> Color
 hex2RGB i =
-  let r = i `mod` 256
+  let r = (i `div` 65536) `mod` 256
       g = (i `div` 256) `mod` 256
-      b = i `div` 256 `div` 256
-   in srgbColor r g b
+      b = i `mod` 256
+  in srgbColor r g b
+
+
