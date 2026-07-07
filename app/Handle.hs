@@ -61,6 +61,10 @@ handleEvent' chan imageService = \case
     handleRightMouseUp chan name location
   AppEvent appEvent ->
     handleAppEvent chan imageService appEvent
+  VtyEvent (V.EvKey key mods) -> do
+    mode <- use stMode
+    when (mode == NormalMode) $
+      handleNormalModeKey key mods
   _ ->
     pure ()
 
@@ -82,6 +86,7 @@ handleGlobalEvent chan imageService = \case
   -- Toggle modes. See `Mode` for details
   VtyEvent (V.EvKey (V.KChar '`') []) ->
     clearCommandEdit >> switchMode $> True
+
   -- Submit command
   VtyEvent (V.EvKey V.KEnter []) -> do
     mode <- use stMode
@@ -260,3 +265,42 @@ handleStartEvent = do
       <> "\n"
       <> "- Image format: "
       <> show (Term.deduceFormat termType)
+
+handleNormalModeKey :: V.Key -> [V.Modifier] -> EventM (MName St) St ()
+handleNormalModeKey key mods = case (key, mods) of
+  (V.KChar ' ', []) -> togglePlay
+  (V.KChar 'p', []) -> togglePlay
+  (V.KChar 'n', []) -> nextSong
+  (V.KChar 'b', []) -> prevSong
+  (V.KChar '+', []) -> changeVolume 5
+  (V.KChar '-', []) -> changeVolume (-5)
+  (V.KChar 's', []) -> shuffleQueue
+  (V.KChar 'c', []) -> clearQueue
+  _ -> pure ()
+ where
+  togglePlay = do
+    stPlaying . psPaused %= not
+    paused <- use $ stPlaying . psPaused
+    sendRequest . MPDOperation . pure $ MPD.pause paused
+
+  nextSong = do
+    stPlaying . psPaused .= False
+    sendRequest $ MPDOperation [MPD.next]
+
+  prevSong = do
+    stPlaying . psPaused .= False
+    sendRequest $ MPDOperation [MPD.previous]
+
+  changeVolume diff = do
+    currentVol <- use $ stConfig . csVolume
+    let newVol = max 0 (min 100 (fromIntegral currentVol + diff))
+    stConfig . csVolume .= fromIntegral newVol
+    sendRequest $ MPDOperation [MPD.setVolume (fromIntegral newVol)]
+
+  shuffleQueue = do
+    sendRequest $ MPDOperation [MPD.shuffle Nothing]
+    sendRequest SignalCurrentQueue
+
+  clearQueue = do
+    sendRequest $ MPDOperation [MPD.clear]
+    sendRequest SignalCurrentQueue
