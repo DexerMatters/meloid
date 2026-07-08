@@ -22,6 +22,8 @@ extra-doc-files:
 extra-source-files:
   assets/config.schema.yaml
   assets/default-config.yaml
+  assets/default-eq.txt
+  assets/pipewire/meloid-eq.conf
 
 common warnings
   ghc-options: -Wall
@@ -43,6 +45,7 @@ executable meloid
     Types.Helpers
     Types.Actions
     Types.Logging
+    Types.Configs
     Handle
     Widgets
     Widgets.Common
@@ -55,7 +58,7 @@ executable meloid
     Compat.Image
     Compat.Term
     Compat.Ansi
-    Compat.Locations
+    Compat.Software
 
   -- other-extensions:
   build-depends:    
@@ -89,8 +92,12 @@ executable meloid
     vector,
     vector-algorithms,
     vty-crossplatform,
+    MissingH,
+
+    -- Parsers
     aeson,
-    yaml
+    yaml,
+    megaparsec
 
   hs-source-dirs:   app
   default-language: GHC2024

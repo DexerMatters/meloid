@@ -8,7 +8,9 @@ themes from files, which is provided by Brick.
 -}
 module Attrs (
   ColorMode (..),
+  accent,
   defaultTheme,
+  primary,
 ) where
 
 import Brick

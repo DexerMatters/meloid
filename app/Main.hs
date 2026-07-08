@@ -14,19 +14,15 @@ import Brick.Types (
  )
 import Brick.Widgets.Edit qualified as E
 import Compat.Image qualified as Image
-import Compat.Locations
 import Compat.Term qualified as Term
 import Control.Concurrent (forkIO)
-import Control.Exception (finally)
 import Control.Monad (void)
 import Control.Monad.State (execState)
 import Data.Map qualified as Map
 import Data.Vector qualified as Vec
-import GHC.IORef
 import Graphics.Vty qualified as V
 import Graphics.Vty.CrossPlatform qualified as Vty
 import Handle
-import Lens.Micro
 import Lens.Micro.Mtl
 import Sys qualified
 import Types
@@ -48,8 +44,8 @@ app chan imageService attrMap =
     , M.appHandleEvent = handleEvent chan imageService
     }
 
-runApp :: IORef ConfigValue -> IO ()
-runApp defConfig = do
+main :: IO ()
+main = do
   -- Event channel
   chan <- newBChan 2048
   -- Request channel (send requests to the MPD backend)
@@ -66,26 +62,18 @@ runApp defConfig = do
   vty <- mkVty
 
   -- Initialize the state
-  defConf <- readIORef defConfig
   let st = flip execState defaultSt $ do
         stChannel .= Just requestChan
         stCurrentView .= Just MainView
         stLastView .= Just MainView
-        stConfig . csConfigs .= defConf
-  finalSt <-
+  _finalSt <-
     M.customMain
       vty
       mkVty
       (Just chan)
       (app chan imageService (T.themeToAttrMap defaultTheme))
       st
-  writeIORef defConfig (finalSt ^. stConfig . csConfigs)
-
-main :: IO ()
-main = do
-  conf <- newIORef (defaultSt ^. stConfig . csConfigs)
-  runApp conf `finally` do
-    saveConfigValue <$> readIORef conf
+  return ()
 
 -- | The initial state
 defaultSt :: St
@@ -106,6 +94,7 @@ defaultSt =
     , _stMode = NormalMode
     , _stSelectedAlbum = Nothing
     , _stSelectedPlaylist = 0
+    , _stSelectedEQ = "default"
     , _stConfig =
         ConfigSt
           { _csVolume = 0
@@ -113,7 +102,14 @@ defaultSt =
           , _csAllPlaylists = Vec.empty
           , _csAllDirs = Vec.empty
           , _csAllAlbums = Vec.empty
-          , _csConfigs = defaultConfigValue
+          , _csConfigs =
+              ConfigValue
+                { _cvColorMode = "auto"
+                , _cvShowWelcome = True
+                , _cvEq = "default"
+                }
+          , _csEQConfigs = Map.empty
+          , _csCurrentEQ = "default"
           }
     , _stPlaying =
         PlayingSt

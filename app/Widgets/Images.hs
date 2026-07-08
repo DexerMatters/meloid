@@ -1,9 +1,9 @@
 {-# LANGUAGE LambdaCase #-}
 
-{- | This module provides widgets to display album art.
-This module provides the way to wrap the album art into the
-Brick's widget. However, when the image format supports
-high resolution, the widget is just a placeholder.
+{- | This module provides widgets to display an image.
+There is the way to wrap the album art into the Brick's
+widget. However, when the image format supports high
+resolution, the widget is just a placeholder.
 -}
 module Widgets.Images (
   AlbumArtPlaying (..),

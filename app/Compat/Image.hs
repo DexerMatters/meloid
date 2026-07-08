@@ -16,7 +16,7 @@ where
 
 import Brick
 import Brick.BChan (BChan, writeBChan, writeBChanNonBlocking)
-import Compat.Locations
+import Types.Configs
 import Compat.Term
 import Compat.Term qualified as Term
 import Control.Concurrent (forkIO)

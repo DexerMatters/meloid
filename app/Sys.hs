@@ -10,11 +10,11 @@ the MPD server.
 module Sys (musicPlayerThread) where
 
 import Brick.BChan
-import Compat.Locations (readConfigValue)
+import Compat.Software
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Exception (AsyncException (ThreadKilled), SomeException, throwIO, try)
 import Control.Monad
-import Control.Monad.Except (ExceptT (ExceptT), withExceptT)
+import Control.Monad.Except (ExceptT (ExceptT))
 import Control.Monad.State (liftIO)
 import Control.Monad.Trans.Except (runExceptT)
 import Data.ByteString.UTF8 qualified as UTF8
@@ -22,12 +22,15 @@ import Data.Char (isSpace)
 import Data.Function (on)
 import Data.List
 import Data.List.NonEmpty qualified as NonEmpty
+import Data.Map qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Vector qualified as Vec
-import Lens.Micro ((<&>))
+import Lens.Micro
 import Network.MPD qualified as MPD
 import Network.MPD.Core qualified as Core
+import System.Directory (listDirectory)
 import Types hiding (panic)
+import Types.Configs qualified as Stored
 import Prelude hiding (log)
 
 songProgressInterval :: Int
@@ -77,6 +80,21 @@ musicPlayerThread reqChan evChan = do
       log "MPD is available."
 
   _ <- MPD.withMPD $ MPD.rescan Nothing
+
+  -- Initialize stored configs
+  configs <- runExceptT (Stored.read Stored.Configs) >>= either panic pure
+  eqConfigs <- runExceptT loadEQConfigs >>= either panic pure
+  log $ "Config is loaded successfully: " <> show configs
+  log $ "EQ configs are loaded successfully: " <> show eqConfigs
+
+  -- Update modules
+  -- Currently, Pipewire is the only supported audio server
+  updateModuleEQId PipeWire (configs ^. cvEq)
+
+  -- Restart audio server
+  -- Currently, Pipewire is the only supported audio server
+  runExceptT (restartAudioServer PipeWire) >>= either panic pure
+  log $ "Audio server is restarted successfully: " <> show PipeWire
 
   forever $ do
     req <- readBChan reqChan
@@ -141,8 +159,6 @@ musicPlayerThread reqChan evChan = do
                   Nothing ->
                     defaultAlbum
           plSongs <- mapM (ExceptT . MPD.withMPD . MPD.listPlaylistInfo) plNames
-          configs <- withExceptT MPD.Unexpected readConfigValue
-          liftIO . log $ "Config is loaded successfully: " <> show configs
           let playlists = zipWith Playlist plNames plSongs
           liftIO $
             postEvent $
@@ -154,6 +170,8 @@ musicPlayerThread reqChan evChan = do
                   , _csAllDirs = Vec.fromList (fmap MPD.toString dirs)
                   , _csAllAlbums = Vec.fromList albums
                   , _csConfigs = configs
+                  , _csEQConfigs = eqConfigs
+                  , _csCurrentEQ = configs ^. cvEq
                   }
         either (pure . Just . Left) (const $ pure Nothing) result
 
@@ -199,3 +217,21 @@ musicPlayerThread reqChan evChan = do
 
   prefixOf prefix s =
     take (length prefix) s == prefix
+
+  loadEQConfigs = do
+    _ <- Stored.path (Stored.EQConfigs "default")
+    eqDir <- liftIO $ (<> "/eq") <$> Stored.configDir
+    eqFiles <- liftIO $ listDirectory eqDir
+    let eqIds =
+          sort
+            [ reverse (drop 4 (reverse file))
+            | file <- eqFiles
+            , ".txt" `isSuffixOf` file
+            ]
+    Map.fromList
+      <$> forM
+        eqIds
+        ( \eqId -> do
+            config <- Stored.read (Stored.EQConfigs eqId)
+            pure (eqId, config)
+        )

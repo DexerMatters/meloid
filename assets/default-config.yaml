@@ -2,3 +2,4 @@
 $schema: https://github.com/DexerMatters/meloid/raw/master/assets/config.schema.yaml
 showWelcome: true
 colorMode: auto
+eq: default
