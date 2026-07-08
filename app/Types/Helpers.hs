@@ -1,5 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-
 {- | Pure derived helpers for albums, songs, and current playback.
 These functions are intentionally kept state-only so they remain
 cheap to reuse from multiple modules.
@@ -20,27 +18,21 @@ module Types.Helpers (
   stCurrentSongPos,
   stShownCurrentTime,
   formatSecs,
-  defaultConfigStr,
-  defaultConfigValue,
   (.?),
 ) where
 
-import Data.ByteString qualified as BS
 import Data.List (sortBy)
 import Data.List.NonEmpty (NonEmpty, fromList)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map ((!?))
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Vector qualified as Vec
-import Data.Yaml qualified as YAML
-import Language.Haskell.TH.Syntax (addDependentFile, lift, runIO)
 import Lens.Micro (to, (<&>), (^.), _Just)
 import Lens.Micro.Type (SimpleGetter)
 import Network.MPD qualified as MPD
 import Text.Read (readMaybe)
 import Types.Core
 import Types.Model
-import Types.Schemas
 
 -- | Size reserved for the large now-playing art slot.
 albumArtPlayingSize :: ImageSize
@@ -147,34 +139,6 @@ formatSecs totalSecs = show mins ++ ":" ++ ensureTwoDigits secs
  where
   (mins, secs) = totalSecs `divMod` 60
   ensureTwoDigits n = if n < 10 then "0" ++ show n else show n
-
--- | The checked-in default config text, copied verbatim on first run.
-defaultConfigStr :: String
-defaultConfigStr =
-  $( do
-       let fp = "assets/default-config.yaml"
-       addDependentFile fp
-       content <- runIO (readFile fp)
-       lift content
-   )
-
--- | The checked-in default config, decoded at compile time.
-defaultConfigValue :: ConfigValue
-defaultConfigValue =
-  $( do
-       let fp = "assets/default-config.yaml"
-       addDependentFile fp
-       content <- runIO (BS.readFile fp)
-       case (YAML.decodeEither' content :: Either YAML.ParseException ConfigValue) of
-         Left err ->
-           fail $
-             "Failed to decode "
-               <> fp
-               <> " as ConfigValue:\n"
-               <> YAML.prettyPrintParseException err
-         Right value ->
-           lift value
-   )
 
 -- | Lens helper for optional nested fields.
 (.?) :: (Applicative f) => ((Maybe a1 -> f (Maybe a')) -> c) -> (a2 -> a1 -> f a') -> a2 -> c

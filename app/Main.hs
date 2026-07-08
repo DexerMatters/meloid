@@ -14,15 +14,19 @@ import Brick.Types (
  )
 import Brick.Widgets.Edit qualified as E
 import Compat.Image qualified as Image
+import Compat.Locations
 import Compat.Term qualified as Term
 import Control.Concurrent (forkIO)
+import Control.Exception (finally)
 import Control.Monad (void)
 import Control.Monad.State (execState)
 import Data.Map qualified as Map
 import Data.Vector qualified as Vec
+import GHC.IORef
 import Graphics.Vty qualified as V
 import Graphics.Vty.CrossPlatform qualified as Vty
 import Handle
+import Lens.Micro
 import Lens.Micro.Mtl
 import Sys qualified
 import Types
@@ -44,8 +48,8 @@ app chan imageService attrMap =
     , M.appHandleEvent = handleEvent chan imageService
     }
 
-main :: IO ()
-main = do
+runApp :: IORef ConfigValue -> IO ()
+runApp defConfig = do
   -- Event channel
   chan <- newBChan 2048
   -- Request channel (send requests to the MPD backend)
@@ -62,17 +66,26 @@ main = do
   vty <- mkVty
 
   -- Initialize the state
+  defConf <- readIORef defConfig
   let st = flip execState defaultSt $ do
         stChannel .= Just requestChan
         stCurrentView .= Just MainView
         stLastView .= Just MainView
-  void $
+        stConfig . csConfigs .= defConf
+  finalSt <-
     M.customMain
       vty
       mkVty
       (Just chan)
       (app chan imageService (T.themeToAttrMap defaultTheme))
       st
+  writeIORef defConfig (finalSt ^. stConfig . csConfigs)
+
+main :: IO ()
+main = do
+  conf <- newIORef (defaultSt ^. stConfig . csConfigs)
+  runApp conf `finally` do
+    saveConfigValue <$> readIORef conf
 
 -- | The initial state
 defaultSt :: St

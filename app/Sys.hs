@@ -10,10 +10,11 @@ the MPD server.
 module Sys (musicPlayerThread) where
 
 import Brick.BChan
-import Compat.Locations (configFile)
+import Compat.Locations (readConfigValue)
 import Control.Concurrent (forkIO, threadDelay)
+import Control.Exception (AsyncException (ThreadKilled), SomeException, throwIO, try)
 import Control.Monad
-import Control.Monad.Except (ExceptT (ExceptT))
+import Control.Monad.Except (ExceptT (ExceptT), withExceptT)
 import Control.Monad.State (liftIO)
 import Control.Monad.Trans.Except (runExceptT)
 import Data.ByteString.UTF8 qualified as UTF8
@@ -23,7 +24,6 @@ import Data.List
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Vector qualified as Vec
-import Data.Yaml qualified as YAML
 import Lens.Micro ((<&>))
 import Network.MPD qualified as MPD
 import Network.MPD.Core qualified as Core
@@ -61,7 +61,7 @@ songChangeLoopThread evChan = MPD.withMPD $ forever $ do
 -- | The main loop of the MPD backend
 musicPlayerThread :: BChan Request -> BChan Event -> IO ()
 musicPlayerThread reqChan evChan = do
-  res0 <- MPD.withMPD MPD.status
+  res0 <- trace $ MPD.withMPD MPD.status
 
   case res0 of
     Left _ ->
@@ -141,14 +141,8 @@ musicPlayerThread reqChan evChan = do
                   Nothing ->
                     defaultAlbum
           plSongs <- mapM (ExceptT . MPD.withMPD . MPD.listPlaylistInfo) plNames
-          configs <-
-            ExceptT $
-              configFile
-                >>= YAML.decodeFileEither <&> \case
-                  Left err ->
-                    Left . MPD.Unexpected $
-                      "Failed to parse config file:\n" <> YAML.prettyPrintParseException err
-                  Right x -> Right x
+          configs <- withExceptT MPD.Unexpected readConfigValue
+          liftIO . log $ "Config is loaded successfully: " <> show configs
           let playlists = zipWith Playlist plNames plSongs
           liftIO $
             postEvent $
@@ -169,18 +163,30 @@ musicPlayerThread reqChan evChan = do
       _ ->
         pure ()
  where
-  panic = logEv evChan Error "MPD"
+  panic :: String -> IO a
+  panic s = logEv evChan Error "MPD" s >> throwIO ThreadKilled
+
   log = logEv evChan Info "MPD"
 
-  postEvent :: Event -> IO ()
+  trace :: IO a -> IO a
+  trace m =
+    try @SomeException m >>= \case
+      Left err ->
+        panic $
+          unlines
+            [ "Some unexpected error occurred:"
+            , show err
+            , "Note: This is probably an error thrown by the internal MPD library."
+            , "If you see this, please open an issue on GitHub."
+            ]
+      Right res -> pure res
+
   postEvent = writeBChan evChan
 
-  getMusicDirectory :: MPD.MPD (Maybe FilePath)
   getMusicDirectory = do
     lines_ <- Core.getResponse "config"
     pure $ lookupConfig "music_directory" (map UTF8.toString lines_)
 
-  lookupConfig :: String -> [String] -> Maybe String
   lookupConfig key lines_ =
     case find ((key ++ ":") `prefixOf`) lines_ of
       Nothing -> Nothing
@@ -191,6 +197,5 @@ musicPlayerThread reqChan evChan = do
                   dropWhile (/= ':') line
          in Just value
 
-  prefixOf :: String -> String -> Bool
   prefixOf prefix s =
     take (length prefix) s == prefix

@@ -37,7 +37,7 @@ ensureCachedAlbumArtBytes cacheDir key uri =
     Just bytes ->
       pure bytes
     Nothing -> do
-      bytes <- ExceptT $ readAlbumArtBytes uri
+      bytes <- readAlbumArtBytes uri
       writeCachedAlbumArtBytes cacheDir key bytes
       pure bytes
 
@@ -54,7 +54,7 @@ writeCachedAlbumArtBytes cacheDir key bytes = do
   let path = cacheFilePath cacheDir key
   alreadyCached <- ExceptT . try $ doesFileExist path
   unless alreadyCached $ do
-    (tmpPath, handle) <- ExceptT . try $ openBinaryTempFile cacheDir "gaze-player-album-art"
+    (tmpPath, handle) <- ExceptT . try $ openBinaryTempFile cacheDir "meloid-album-art"
     liftIO $ hSetBinaryMode handle True
     ExceptT (try $ BS.hPut handle bytes >> hClose handle) `catchE` \err -> do
       cleanupTempImage tmpPath
@@ -82,12 +82,8 @@ cacheFileName key =
       [single] -> ['0', single]
       hex -> hex
 
-readAlbumArtBytes :: String -> IO (Either IOException BS.ByteString)
-readAlbumArtBytes uri = do
-  embedded <- runExceptT $ runMpcBytes ["readpicture", uri]
-  case embedded of
-    Right bs -> pure (Right bs)
-    Left _ -> runExceptT $ runMpcBytes ["albumart", uri]
+readAlbumArtBytes :: String -> ExceptT IOException IO BS.ByteString
+readAlbumArtBytes uri = runMpcBytes ["readpicture", uri] `catchE` \_ -> runMpcBytes ["albumart", uri]
 
 -- | Render the album art bytes to a terminal image using Chafa.
 renderAlbumArt :: Term.ImageFormat -> ImageSize -> BS.ByteString -> ExceptT IOException IO RenderedImage
@@ -130,7 +126,7 @@ chafaOutput format (w, h) bs = do
 
 writeTempImage :: BS.ByteString -> ExceptT IOException IO FilePath
 writeTempImage bs = do
-  (tmpPath, handle) <- ExceptT . try $ openBinaryTempFile "/tmp" "gaze-player-image-input"
+  (tmpPath, handle) <- ExceptT . try $ openBinaryTempFile "/tmp" "meloid-image-input"
   liftIO $ hSetBinaryMode handle True
   ExceptT (try $ BS.hPut handle bs >> hClose handle) `catchE` \err -> do
     cleanupTempImage tmpPath
@@ -139,7 +135,7 @@ writeTempImage bs = do
 
 convertToPng :: FilePath -> ExceptT IOException IO FilePath
 convertToPng inputPath = do
-  (tmpPath, handle) <- ExceptT . try $ openBinaryTempFile "/tmp" "gaze-player-image-converted.png"
+  (tmpPath, handle) <- ExceptT . try $ openBinaryTempFile "/tmp" "meloid-image-converted.png"
   liftIO $ hClose handle
   readRawProcess "magick" [inputPath, tmpPath] (handleMagickResult tmpPath) `catchE` \err -> do
     cleanupTempImage tmpPath
@@ -254,4 +250,4 @@ extractKittyGraphics = BS.concat . go
 
 cleanupTempImage :: FilePath -> ExceptT IOException IO ()
 cleanupTempImage path =
-  liftIO $ void (try (removeFile path) :: IO (Either IOException ()))
+  liftIO $ void $ try @IOException (removeFile path)

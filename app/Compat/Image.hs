@@ -62,7 +62,7 @@ data ImageService = ImageService
 -- | Start the image service with workers for rendering album art.
 startImageService :: BChan Event -> IO ImageService
 startImageService evChan = do
-  rawCacheDir <- prepareAlbumArtCacheDir
+  rawCacheDir <- albumArtCacheDir
   requests <- newTQueueIO
   pendingRender <- newTVarIO Set.empty
   renderQueue <- newImageRenderQueue
