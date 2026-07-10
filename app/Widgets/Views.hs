@@ -85,7 +85,7 @@ drawWelcomeDialog :: St -> Widget (MName St)
 drawWelcomeDialog st =
   W.withAttr (attrName "dialog") $
     W.padAll 2 . W.vBox $
-      [ C.hCenter $ W.str "Welcome to Gaze Player"
+      [ C.hCenter $ W.str "Welcome to Meloid"
       , C.hCenter pageWidget
       , W.padTop (W.Pad 2) $
           W.hBox
@@ -130,7 +130,7 @@ drawSimpleDialog :: St -> Widget (MName St)
 drawSimpleDialog st =
   W.withAttr (attrName "dialog") $
     W.padAll 2 . W.vBox $
-      [ C.hCenter $ W.str "Welcome to Gaze Player"
+      [ C.hCenter $ W.str "Welcome to Meloid"
       , C.hCenter $ W.strWrap (st ^. stDialog .? dsText)
       , W.padTop (W.Pad 2) . W.padLeft W.Max $ drawNamed st OkButton
       ]
