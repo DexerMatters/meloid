@@ -34,6 +34,7 @@ executable meloid
     main-is:          Main.hs
     other-modules:
         Attrs
+        Utils
         Sys
         Image
         Cmd

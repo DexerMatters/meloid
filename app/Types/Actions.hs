@@ -13,12 +13,15 @@ module Types.Actions (
   switchMode,
   returnToLastView,
   sendRequest,
+  trigger,
+  unTrigger,
 ) where
 
 import Brick.BChan (writeBChan)
 import Brick.Types (EventM)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
+import Data.Set qualified as Set
 import Lens.Micro.Mtl
 import Types.Core
 import Types.Identity (MName, ViewName)
@@ -67,3 +70,15 @@ sendRequest r = do
   case chan of
     Nothing -> pure ()
     Just c -> liftIO $ writeBChan c r
+
+{- | Trigger a widget by its name.
+This means inserting the widget into the stTriggeredNames set.
+-}
+trigger :: MName St -> EventM (MName St) St ()
+trigger name = stTriggeredNames %= Set.insert name
+
+{- | Untrigger a widget by its name.
+This means removing the widget from the stTriggeredNames set.
+-}
+unTrigger :: MName St -> EventM (MName St) St ()
+unTrigger name = stTriggeredNames %= Set.delete name

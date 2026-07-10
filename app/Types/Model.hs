@@ -22,6 +22,7 @@ module Types.Model (
   stPressed,
   stSongProgressPreview,
   stLastRightPressed,
+  stTriggeredNames,
   stCurrentView,
   stLastView,
   stDialog,
@@ -65,6 +66,7 @@ import Brick.Types (EventM, Extent)
 import Brick.Widgets.Edit qualified as E
 import Compat.Term (ImageFormat, TermType)
 import Data.Map qualified as Map
+import Data.Set qualified as Set
 import Data.Vector qualified as Vec
 import Lens.Micro.TH (makeLenses)
 import Network.MPD qualified as MPD
@@ -141,6 +143,7 @@ data St
   { _stEdits :: EditSt' St
   , _stPressed :: Maybe (MName St)
   , _stSongProgressPreview :: Maybe (Double, Double)
+  , _stTriggeredNames :: Set.Set (MName St)
   , _stLastRightPressed :: Maybe (MName St)
   , _stCurrentView :: Maybe ViewName
   , _stLastView :: Maybe ViewName

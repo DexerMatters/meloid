@@ -59,10 +59,8 @@ instance Drawable St AllAlbumList where
       AllAlbumEntry
       (drawNamed st . AlbumArtThumb)
       (st ^. stConfig . csAllAlbums)
-  handlesMouseScrollUp _ = True
-  handlesMouseScrollDown _ = True
-  onMouseScrollUp _ = scrollViewportBy (mName AllAlbumList) (negate $ snd albumArtThumbSize)
-  onMouseScrollDown _ = scrollViewportBy (mName AllAlbumList) (snd albumArtThumbSize)
+  onMouseScrollUp _ = Just $ scrollViewportBy (mName AllAlbumList) (negate $ snd albumArtThumbSize)
+  onMouseScrollDown _ = Just $ scrollViewportBy (mName AllAlbumList) (snd albumArtThumbSize)
   parent _ = Just (ParentView MainView)
 
 instance Drawable St AllAlbumEntry where
@@ -73,8 +71,7 @@ instance Drawable St AllAlbumEntry where
         drawGeneralButton st (mName $ AllAlbumEntry i) $
           W.withAttr (attrName "header") $
             strClippedWithEllipsis (albumName album)
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp (AllAlbumEntry i) _ = stSelectedAlbum .= Just i
+  onMouseLeftUp (AllAlbumEntry i) = Just $ \_ -> stSelectedAlbum .= Just i
   parent (AllAlbumEntry _) = Just (ParentName (mName AllAlbumList))
   variant (AllAlbumEntry i) = i
 
@@ -85,18 +82,14 @@ instance Drawable St AlbumSongList where
       (mName AlbumSongList)
       AlbumSongEntry
       (selectedAlbumSongs st)
-  handlesMouseScrollUp _ = True
-  handlesMouseScrollDown _ = True
-  onMouseScrollUp _ = scrollViewportBy (mName AlbumSongList) (-1)
-  onMouseScrollDown _ = scrollViewportBy (mName AlbumSongList) 1
+  onMouseScrollUp _ = Just $ scrollViewportBy (mName AlbumSongList) (-1)
+  onMouseScrollDown _ = Just $ scrollViewportBy (mName AlbumSongList) 1
   parent _ = Just (ParentView MainView)
 
 instance Drawable St AlbumSongEntry where
   draw (AlbumSongEntry i) st =
     drawSongRow st AlbumSongEntry i (selectedAlbumSongs st) songTrack
-  isClickable _ = True
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp (AlbumSongEntry i) _ = do
+  onMouseLeftUp (AlbumSongEntry i) = Just $ \_ -> do
     st <- get
     sendRequest . MPDOperation . pure $ do
       let song = selectedAlbumSongs st Vec.! i
@@ -117,10 +110,8 @@ instance Drawable St QueueSongList where
   draw _ st =
     drawSongList st (mName QueueSongList) QueueSongEntry $
       st ^. stPlaying . psCurrentQueue
-  handlesMouseScrollUp _ = True
-  handlesMouseScrollDown _ = True
-  onMouseScrollUp _ = scrollViewportBy (mName QueueSongList) (-1)
-  onMouseScrollDown _ = scrollViewportBy (mName QueueSongList) 1
+  onMouseScrollUp _ = Just $ scrollViewportBy (mName QueueSongList) (-1)
+  onMouseScrollDown _ = Just $ scrollViewportBy (mName QueueSongList) 1
   parent _ = Just (ParentView MainView)
 
 instance Drawable St QueueSongEntry where
@@ -134,9 +125,7 @@ instance Drawable St QueueSongEntry where
       | otherwise = id
   variant (QueueSongEntry i) = i
   parent (QueueSongEntry _) = Just (ParentName (mName QueueSongList))
-  isClickable _ = True
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp (QueueSongEntry i) _ = do
+  onMouseLeftUp (QueueSongEntry i) = Just $ \_ -> do
     stPlaying . psPaused .= False
     sendRequest . MPDOperation . pure $ MPD.play (Just i)
 
@@ -147,10 +136,8 @@ instance Drawable St EQConfigList where
         map
           (drawNamed st . EQConfigEntry)
           [0 .. Map.size (st ^. stConfig . csEQConfigs) - 1]
-  handlesMouseScrollUp _ = True
-  handlesMouseScrollDown _ = True
-  onMouseScrollUp _ = scrollViewportBy (mName EQConfigList) (-1)
-  onMouseScrollDown _ = scrollViewportBy (mName EQConfigList) 1
+  onMouseScrollUp _ = Just $ scrollViewportBy (mName EQConfigList) (-1)
+  onMouseScrollDown _ = Just $ scrollViewportBy (mName EQConfigList) 1
   parent _ = Just (ParentView MainView)
 
 instance Drawable St EQConfigEntry where
@@ -165,9 +152,7 @@ instance Drawable St EQConfigEntry where
     text = st ^. stConfig . csEQConfigs . to (fst . (Map.elemAt i))
   variant (EQConfigEntry i) = i
   parent _ = Just (ParentName (mName EQConfigList))
-  isClickable _ = True
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp (EQConfigEntry i) _ = do
+  onMouseLeftUp (EQConfigEntry i) = Just $ \_ -> do
     eqs <- use $ stConfig . csEQConfigs
     let newId = fst $ Map.elemAt i eqs
     stConfig . csConfigs . cvEq .= newId
@@ -202,9 +187,7 @@ instance Drawable St MenuEntry where
     _ -> W.emptyWidget
   parent _ = Just (ParentView MainView)
   variant (MenuEntry i) = i
-  isClickable _ = True
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp (MenuEntry i) _ =
+  onMouseLeftUp (MenuEntry i) = Just $ \_ ->
     use stMenu >>= \case
       (fmap (!! i) -> Just (_, action)) ->
         action

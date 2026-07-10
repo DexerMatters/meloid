@@ -19,6 +19,7 @@ module Types.Helpers (
   stCurrentEQ,
   stCurrentEQIndex,
   stShownCurrentTime,
+  stIsTriggered,
   formatSecs,
   (.?),
 ) where
@@ -28,14 +29,17 @@ import Data.List.NonEmpty (NonEmpty, fromList)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Set qualified as Set
 import Data.Vector qualified as Vec
 import Lens.Micro (to, (<&>), (^.), _Just)
 import Lens.Micro.Type (SimpleGetter)
 import Network.MPD qualified as MPD
 import Text.Read (readMaybe)
 import Types.Core
+import Types.Identity (MName)
 import Types.Model
 import Types.Schemas (EQConfigValue, cvEq)
+import Utils (formatSecs)
 
 -- | Size reserved for the large now-playing art slot.
 albumArtPlayingSize :: ImageSize
@@ -128,6 +132,9 @@ stCurrentSongMeta meta = stPlaying . psCurrentSong . to (fromList . f)
   unknown MPD.Title = "Unknown Title"
   unknown _ = "Unknown"
 
+stIsTriggered :: MName St -> SimpleGetter St Bool
+stIsTriggered name = to $ \st -> Set.member name (st ^. stTriggeredNames)
+
 -- | The time shown in the UI, taking drag previews into account.
 stShownCurrentTime :: SimpleGetter St (Maybe (Double, Double))
 stShownCurrentTime =
@@ -136,22 +143,17 @@ stShownCurrentTime =
       Just previewTime -> Just previewTime
       Nothing -> st ^. stPlaying . psCurrentTime
 
+-- | The current EQ config value.
 stCurrentEQ :: SimpleGetter St EQConfigValue
 stCurrentEQ = to $ \st ->
   -- SAFETY: It is guaranteed at the config loading stage
   (st ^. stConfig . csEQConfigs) Map.! (st ^. stConfig . csConfigs . cvEq)
 
+-- | The current EQ config index.
 stCurrentEQIndex :: SimpleGetter St (Maybe Int)
 stCurrentEQIndex = to $ \st ->
   -- SAFETY: It is guaranteed at the config loading stage
   Map.lookupIndex (st ^. stConfig . csConfigs . cvEq) (st ^. stConfig . csEQConfigs)
-
--- | Format seconds as `m:ss`.
-formatSecs :: Integer -> String
-formatSecs totalSecs = show mins ++ ":" ++ ensureTwoDigits secs
- where
-  (mins, secs) = totalSecs `divMod` 60
-  ensureTwoDigits n = if n < 10 then "0" ++ show n else show n
 
 -- | Lens helper for optional nested fields.
 (.?) :: (Applicative f) => ((Maybe a1 -> f (Maybe a')) -> c) -> (a2 -> a1 -> f a') -> a2 -> c

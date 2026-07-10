@@ -10,8 +10,8 @@ import GHC.Bits
 import Graphics.Vty.Attributes qualified as A
 import Graphics.Vty.Image qualified as I
 import Lens.Micro
-import Numeric (showFFloat)
 import Types
+import Utils (clampValue, eqGainBarNudgeLimitDb, formatFrequencyLabel)
 
 {- | This widget is a visualizer for the equalizer curve.
 Its state is associated with EQ config and current EQ ID.
@@ -66,16 +66,17 @@ renderEQPlotImage palette width height config =
     | cellY <- [0 .. charHeight - 1]
     ]
  where
+  bandFrequencies = map (^. eqBandFrequencyHz) (config ^. eqBands)
   charWidth = max 1 width
   charHeight = max 1 height
   plotWidth = charWidth * 2
   plotHeight = charHeight * 4
-  responses = [eqResponseDb (frequencyAt plotWidth x) | x <- [0 .. plotWidth - 1]]
+  responses = [eqResponseDb (frequencyAt bandFrequencies plotWidth x) | x <- [0 .. plotWidth - 1]]
   curveYs = map (dbToY) responses
   zeroDbY = dbToY 0
 
   rangeDb =
-    min 36 . max 9 $
+    max eqGainBarNudgeLimitDb . min 36 . max 9 $
       maximum (0 : map abs responses) + 3
 
   dbToY db =
@@ -105,12 +106,24 @@ renderEQPlotImage palette width height config =
     den = max 1.0e-12 (sqrt (denRe * denRe + denIm * denIm))
     magnitude = max 1.0e-12 (num / den)
 
-  frequencyAt w x =
-    20 * ((20000 / 20) ** position)
-   where
-    position
-      | w <= 1 = 0
-      | otherwise = fromIntegral x / fromIntegral (w - 1)
+  frequencyAt frequencies w x =
+    case frequencies of
+      [] -> 1000
+      [frequency] -> frequency
+      _ -> exp (log leftFrequency + t * (log rightFrequency - log leftFrequency))
+     where
+      segmentCount = length frequencies - 1
+      position
+        | w <= 1 = 0
+        | otherwise =
+            fromIntegral (clampValue 0 (w - 1) x)
+              * fromIntegral segmentCount
+              / fromIntegral (w - 1)
+      leftIndex = min (length frequencies - 1) (floor position)
+      rightIndex = min (length frequencies - 1) (leftIndex + 1)
+      t = position - fromIntegral leftIndex
+      leftFrequency = frequencies !! leftIndex
+      rightFrequency = frequencies !! rightIndex
 
 data BrailleDot
   = DotEmpty
@@ -230,42 +243,21 @@ data AxisOverlay = AxisOverlay Int String
 
 axisMarkers :: Int -> EQConfigValue -> [(Int, String)]
 axisMarkers width config =
-  sortOn
-    fst
-    [ (frequencyToX frequency, formatFrequencyLabel frequency)
-    | band <- config ^. eqBands
-    , let frequency = band ^. eqBandFrequencyHz
-    ]
+  zipWith toMarker [0 :: Int ..] (config ^. eqBands)
  where
-  formatFrequencyLabel frequency
-    | frequency >= 1000 =
-        trimTrailingZeros (showFFloat precision kiloHertz "")
-          <> "K"
-    | otherwise = show (round frequency :: Int)
-   where
-    kiloHertz = frequency / 1000
-    precision
-      | kiloHertz < 10 && not (isNearlyWhole kiloHertz) = Just 1
-      | otherwise = Just 0
-    isNearlyWhole value =
-      abs (value - fromIntegral (round value :: Int)) < 0.05
+  bandCount = length (config ^. eqBands)
+  toMarker index band =
+    (bandIndexToX width bandCount index, formatFrequencyLabel (band ^. eqBandFrequencyHz))
 
-  trimTrailingZeros s =
-    case break (== '.') s of
-      (_, "") -> s
-      (whole, _ : fractional) ->
-        case reverse (dropWhile (== '0') (reverse fractional)) of
-          "" -> whole
-          trimmedFractional -> whole <> "." <> trimmedFractional
-
-  frequencyToX frequency
-    | width <= 1 = 0
-    | otherwise =
-        clampValue 0 (width - 1) . round $
-          position * fromIntegral (width - 1)
-   where
-    clampedFrequency = clampValue 20 20000 frequency
-    position = logBase (20000 / 20) (clampedFrequency / 20)
+bandIndexToX :: Int -> Int -> Int -> Int
+bandIndexToX width bandCount index
+  | width <= 1 = 0
+  | bandCount <= 1 = 0
+  | otherwise =
+      clampValue 0 (width - 1) . round $
+        fromIntegral index
+          * fromIntegral (width - 1)
+          / fromIntegral (bandCount - 1)
 
 placeAxisLabels :: Int -> [(Int, String)] -> [AxisOverlay]
 placeAxisLabels width markers =
@@ -350,9 +342,6 @@ bandBiquadCoefficients band =
   w0 = 2 * pi * clampValue 1 (sampleRate / 2 - 1) (band ^. eqBandFrequencyHz) / sampleRate
   cosW0 = cos w0
   alpha = sin w0 / (2 * q)
-
-clampValue :: (Ord a) => a -> a -> a -> a
-clampValue low high = min high . max low
 
 finiteOrZero :: Double -> Double
 finiteOrZero value

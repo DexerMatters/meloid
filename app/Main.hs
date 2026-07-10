@@ -19,6 +19,7 @@ import Control.Concurrent (forkIO)
 import Control.Monad (void)
 import Control.Monad.State (execState)
 import Data.Map qualified as Map
+import Data.Set qualified as Set
 import Data.Vector qualified as Vec
 import Graphics.Vty qualified as V
 import Graphics.Vty.CrossPlatform qualified as Vty
@@ -84,6 +85,7 @@ defaultSt =
           { _esCommand = (E.editor (mName CommandEditor) Nothing "")
           }
     , _stPressed = Nothing
+    , _stTriggeredNames = Set.empty
     , _stSongProgressPreview = Nothing
     , _stLastRightPressed = Nothing
     , _stCurrentView = Nothing

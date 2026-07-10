@@ -21,4 +21,4 @@ instance Drawable St CommandEditor where
         (str . unlines)
         (st ^. stMode == CommandMode)
       $ st ^. stEdits . esCommand
-  isClickable _ = True
+  onMouseLeftDown _ = Just $ \_ -> pure ()

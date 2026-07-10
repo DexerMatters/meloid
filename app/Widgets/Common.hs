@@ -37,6 +37,7 @@ import Lens.Micro ((^.))
 import Lens.Micro.Mtl
 import Network.MPD qualified as MPD
 import Types
+import Utils (ceilingDiv)
 
 {- | Draws a button with the ability to change the attributes when
 pressed.
@@ -84,8 +85,7 @@ instance Drawable St ScrollBar where
         W.vBox $
           fmap drawTrackCell $
             scrollbarThumb height total scrollTop
-  handlesMouseLeftDown _ = True
-  onMouseLeftDown (ScrollBar target) (Location (ax, ay)) =
+  onMouseLeftDown (ScrollBar target) = Just $ \(Location (ax, ay)) ->
     when (ax == 0) $
       B.lookupViewport target >>= \case
         Nothing ->
@@ -190,9 +190,6 @@ makeBarWith steps fullChar partialChars fullWidth count total
     | remainder == 0 = ""
     | otherwise = [partialChars !! (remainder - 1)]
   prefix = replicate fullCells fullChar <> partial
-
-ceilingDiv :: Int -> Int -> Int
-ceilingDiv numerator denominator = (numerator + denominator - 1) `div` denominator
 
 -- | Draws a list of albums.
 drawAlbumList ::
