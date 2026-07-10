@@ -111,19 +111,19 @@ renderEQPlotImage palette width height config =
       [] -> 1000
       [frequency] -> frequency
       _ -> exp (log leftFrequency + t * (log rightFrequency - log leftFrequency))
-     where
-      segmentCount = length frequencies - 1
-      position
-        | w <= 1 = 0
-        | otherwise =
-            fromIntegral (clampValue 0 (w - 1) x)
-              * fromIntegral segmentCount
-              / fromIntegral (w - 1)
-      leftIndex = min (length frequencies - 1) (floor position)
-      rightIndex = min (length frequencies - 1) (leftIndex + 1)
-      t = position - fromIntegral leftIndex
-      leftFrequency = frequencies !! leftIndex
-      rightFrequency = frequencies !! rightIndex
+   where
+    segmentCount = length frequencies - 1
+    position
+      | w <= 1 = 0
+      | otherwise =
+          fromIntegral (clampValue 0 (w - 1) x)
+            * fromIntegral segmentCount
+            / fromIntegral (w - 1)
+    leftIndex = min (length frequencies - 1) (floor position)
+    rightIndex = min (length frequencies - 1) (leftIndex + 1)
+    t = position - fromIntegral leftIndex
+    leftFrequency = frequencies !! leftIndex
+    rightFrequency = frequencies !! rightIndex
 
 data BrailleDot
   = DotEmpty
@@ -254,7 +254,7 @@ bandIndexToX width bandCount index
   | width <= 1 = 0
   | bandCount <= 1 = 0
   | otherwise =
-      clampValue 0 (width - 1) . round $
+      clampValue 0 (width - 1) . round @Double $
         fromIntegral index
           * fromIntegral (width - 1)
           / fromIntegral (bandCount - 1)
