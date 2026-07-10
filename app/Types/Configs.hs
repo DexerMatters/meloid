@@ -17,8 +17,15 @@ import Control.Exception
 import Control.Monad (when)
 import Control.Monad.Except
 import Control.Monad.IO.Class (liftIO)
+import Data.Aeson qualified as JSON
+import Data.ByteString.Lazy.Char8 qualified as BL8
+import Data.List (dropWhileEnd)
 import Language.Haskell.TH.Syntax (addDependentFile, lift, runIO)
+import Paths_meloid qualified as Paths
 import System.Directory
+import System.Environment (lookupEnv)
+import System.Exit (ExitCode (ExitFailure, ExitSuccess))
+import System.Process (readProcessWithExitCode)
 import Types.Schemas
 import Types.Schemas qualified as S
 
@@ -78,6 +85,26 @@ instance StoredConfigs Configs where
          )
     pure file
 
+  save _ value = do
+    file <- path Configs
+    helper <- liftIO $ Paths.getDataFileName "tools/update_config_yaml.mjs"
+    nodeExe <- liftIO $ maybe "node" id <$> lookupEnv "MELOID_NODE"
+    let payload = BL8.unpack (JSON.encode value)
+    result <-
+      liftIO $
+        try @IOException $
+          readProcessWithExitCode nodeExe [helper, file] payload
+    case result of
+      Left err ->
+        throwError $
+          "Failed to run config.yaml updater: " <> displayException err
+      Right (ExitSuccess, _, _) ->
+        pure ()
+      Right (ExitFailure code, _, stderr) ->
+        throwError $
+          "Failed to update config.yaml: "
+            <> formatHelperError code stderr
+
 instance StoredConfigs EQConfigs where
   type Repr EQConfigs = EQConfigValue
 
@@ -119,3 +146,9 @@ albumArtCacheDir = do
       pure fallbackDir
  where
   tryEnsure = try . createDirectoryIfMissing True
+
+formatHelperError :: Int -> String -> String
+formatHelperError code stderr =
+  case dropWhileEnd (`elem` [' ', '\n', '\r', '\t']) stderr of
+    "" -> "config.yaml updater exited with code " <> show code
+    msg -> msg
