@@ -16,81 +16,81 @@ maintainer:         dexermatters@gmail.com
 category:           Sound
 build-type:         Simple
 extra-doc-files:    
-    CHANGELOG.md
-    README.md
+  CHANGELOG.md
+  README.md
 
 extra-source-files:
-    assets/config.schema.yaml
-    assets/default-config.yaml
+  assets/config.schema.yaml
+  assets/default-config.yaml
 
 common warnings
-    ghc-options: -Wall
+  ghc-options: -Wall
 
 executable meloid
-    import:           warnings
-    ghc-options:      -threaded
-    main-is:          Main.hs
-    other-modules:
-        Attrs
-        Sys
-        Image
-        Cmd
-        Types
-        Types.Identity
-        Types.Core
-        Types.Model
-        Types.Schemas
-        Types.Helpers
-        Types.Actions
-        Types.Logging
-        Handle
-        Widgets
-        Widgets.Common
-        Widgets.Images
-        Widgets.Layer
-        Widgets.Lists
-        Widgets.Controls
-        Widgets.Views
-        Widgets.Edits
-        Compat.Image
-        Compat.Term
-        Compat.Ansi
-        Compat.Locations
+  import:           warnings
+  ghc-options:      -threaded
+  main-is:          Main.hs
+  other-modules:
+    Attrs
+    Sys
+    Image
+    Cmd
+    Types
+    Types.Identity
+    Types.Core
+    Types.Model
+    Types.Schemas
+    Types.Helpers
+    Types.Actions
+    Types.Logging
+    Handle
+    Widgets
+    Widgets.Common
+    Widgets.Images
+    Widgets.Layer
+    Widgets.Lists
+    Widgets.Controls
+    Widgets.Views
+    Widgets.Edits
+    Compat.Image
+    Compat.Term
+    Compat.Ansi
+    Compat.Locations
 
-    -- other-extensions:
-    build-depends:    
-        base ^>=4.20.2.0, 
-        mtl,
-        containers,
-        directory,
-        process,
-        transformers,
-        template-haskell,
+  -- other-extensions:
+  build-depends:    
+    base >=4.20.1.0, 
+    mtl,
+    containers,
+    directory,
+    process,
+    transformers,
+    template-haskell,
 
-        -- Terminal UI packages
-        brick,
-        vty,
-        text-zipper,
+    -- Terminal UI packages
+    brick,
+    vty,
+    text-zipper,
 
-        -- Lens packages
-        microlens-th,
-        microlens-mtl,
-        microlens,
+    -- Lens packages
+    microlens-th,
+    microlens-mtl,
+    microlens,
 
-        -- Media packages
-        libmpd,
+    -- Media packages
+    libmpd,
 
-        -- Misc
-        raw-strings-qq,
-        time,
-        stm,
-        utf8-string,
-        bytestring,
-        vector,
-        vector-algorithms,
-        vty-crossplatform,
-        aeson,
-        yaml
+    -- Misc
+    raw-strings-qq,
+    time,
+    stm,
+    utf8-string,
+    bytestring,
+    vector,
+    vector-algorithms,
+    vty-crossplatform,
+    aeson,
+    yaml
 
-    hs-source-dirs:   app
-    default-language: GHC2024
+  hs-source-dirs:   app
+  default-language: GHC2024
