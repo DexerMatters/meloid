@@ -26,7 +26,8 @@ extra-source-files:
   assets/pipewire/meloid-eq.conf
 
 data-files:
-  tools/update_config_yaml.py
+  tools/package.json
+  tools/update_config_yaml.mjs
 
 common warnings
   ghc-options: -Wall

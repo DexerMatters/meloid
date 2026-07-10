@@ -23,6 +23,7 @@ import Data.List (dropWhileEnd)
 import Language.Haskell.TH.Syntax (addDependentFile, lift, runIO)
 import Paths_meloid qualified as Paths
 import System.Directory
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import System.Process (readProcessWithExitCode)
 import Types.Schemas
@@ -86,12 +87,13 @@ instance StoredConfigs Configs where
 
   save _ value = do
     file <- path Configs
-    helper <- liftIO $ Paths.getDataFileName "tools/update_config_yaml.py"
+    helper <- liftIO $ Paths.getDataFileName "tools/update_config_yaml.mjs"
+    nodeExe <- liftIO $ maybe "node" id <$> lookupEnv "MELOID_NODE"
     let payload = BL8.unpack (JSON.encode value)
     result <-
       liftIO $
         try @IOException $
-          readProcessWithExitCode "python3" [helper, file] payload
+          readProcessWithExitCode nodeExe [helper, file] payload
     case result of
       Left err ->
         throwError $
