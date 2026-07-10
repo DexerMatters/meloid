@@ -95,7 +95,6 @@ executable meloid
     vector,
     vector-algorithms,
     vty-crossplatform,
-    MissingH,
 
     -- Parsers
     aeson,

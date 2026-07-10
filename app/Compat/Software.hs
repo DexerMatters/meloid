@@ -12,7 +12,7 @@ module Compat.Software (
 import Control.Exception
 import Control.Monad (void)
 import Control.Monad.Except (ExceptT (ExceptT))
-import Data.List.Utils qualified as List
+import Data.List (isPrefixOf)
 import Language.Haskell.TH.Syntax
 import System.Directory
 import System.Process (readProcess)
@@ -45,8 +45,8 @@ updateModuleEQId PipeWire eqId = do
   let dir = configDir' <> "/pipewire.conf.d"
   createDirectoryIfMissing True dir
 
-  let str' = List.replace "%eqId%" eqId pipewireModuleTemplate
-      str = List.replace "$HOME" homeDir str'
+  let str' = replace "%eqId%" eqId pipewireModuleTemplate
+      str = replace "$HOME" homeDir str'
   writeFile (dir <> "/meloid-eq.conf") str
 
 restartAudioServer :: AudioServer -> ExceptT String IO ()
@@ -56,3 +56,13 @@ restartAudioServer PipeWire =
     tryJust @IOError (\err -> Just $ "Failed to restart audio server: \n" <> show err) $
       void $
         readProcess "systemctl" ["--user", "restart", "pipewire", "pipewire-pulse", "wireplumber"] ""
+
+-- | Replace all occurrences of a substring in a list. Safe against empty search terms.
+replace :: Eq a => [a] -> [a] -> [a] -> [a]
+replace [] _ xs = xs
+replace old new xs = go xs
+ where
+  go [] = []
+  go ys@(z : zs)
+    | old `isPrefixOf` ys = new ++ go (drop (length old) ys)
+    | otherwise = z : go zs
