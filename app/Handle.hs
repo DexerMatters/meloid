@@ -27,6 +27,7 @@ import Data.Foldable (for_)
 import Data.Functor (($>))
 import Data.List (find)
 import Data.Map qualified as Map
+import Data.Maybe (isJust)
 import Data.Text.Zipper qualified as TZ
 import Graphics.Vty qualified as V
 import Lens.Micro
@@ -50,10 +51,16 @@ events defined in the type class `Drawable`
 -}
 handleEvent' :: BChan Event -> Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St ()
 handleEvent' chan imageService = \case
-  MouseDown name V.BScrollDown _ _ ->
-    handleScrollMouse chan name (named handlesMouseScrollDown) (named onMouseScrollDown)
-  MouseDown name V.BScrollUp _ _ ->
-    handleScrollMouse chan name (named handlesMouseScrollUp) (named onMouseScrollUp)
+  MouseDown name V.BScrollDown modifiers _ ->
+    handleScrollMouse chan name $
+      if V.MCtrl `elem` modifiers
+        then named onMouseScrollDown'
+        else named onMouseScrollDown
+  MouseDown name V.BScrollUp modifiers _ ->
+    handleScrollMouse chan name $
+      if V.MCtrl `elem` modifiers
+        then named onMouseScrollUp'
+        else named onMouseScrollUp
   MouseDown name V.BLeft _ location ->
     handleLeftMouseDown chan name location
   MouseUp name (Just V.BLeft) location ->
@@ -143,11 +150,10 @@ handleAppEvent chan imageService = \case
 handleScrollMouse ::
   BChan Event ->
   MName St ->
-  (MName St -> Bool) ->
-  (MName St -> EventM (MName St) St ()) ->
+  (MName St -> Maybe (EventM (MName St) St ())) ->
   EventM (MName St) St ()
-handleScrollMouse chan name supports action = do
-  void $ dispatchToFirst name supports action
+handleScrollMouse chan name handler = do
+  void $ dispatchToFirst name handler
   queueMainViewRefresh chan
 
 handleLeftMouseDown :: BChan Event -> MName St -> B.Location -> EventM (MName St) St ()
@@ -156,8 +162,7 @@ handleLeftMouseDown chan name location = do
   void $
     dispatchToFirst
       name
-      (named handlesMouseLeftDown)
-      (\case MName a -> onMouseLeftDown a location)
+      (\case MName a -> ($ location) <$> onMouseLeftDown a)
   queueMainViewRefresh chan
 
 handleLeftMouseUp :: BChan Event -> MName St -> B.Location -> EventM (MName St) St ()
@@ -167,8 +172,7 @@ handleLeftMouseUp chan name location = do
       void $
         dispatchToFirst
           name
-          (named handlesMouseLeftUp)
-          (\case MName a -> onMouseLeftUp a location)
+          (\case MName a -> ($ location) <$> onMouseLeftUp a)
   stSongProgressPreview .= Nothing
   stPressed .= Nothing
   queueMainViewRefresh chan
@@ -177,8 +181,7 @@ handleRightMouseUp :: BChan Event -> MName St -> B.Location -> EventM (MName St)
 handleRightMouseUp chan name location = do
   dispatchToFirst
     name
-    (\case MName a -> handlesMouseRightUp a)
-    (\case MName a -> onMouseRightUp a location)
+    (\case MName a -> ($ location) <$> onMouseRightUp a)
     >>= mapM_ (\target -> stLastRightPressed .= Just target)
   queueMainViewRefresh chan
 
@@ -214,12 +217,11 @@ switchViewAndSyncImages chan imageService nextView = do
 
 dispatchToFirst ::
   MName St ->
-  (MName St -> Bool) ->
-  (MName St -> EventM (MName St) St ()) ->
+  (MName St -> Maybe (EventM (MName St) St ())) ->
   EventM (MName St) St (Maybe (MName St))
-dispatchToFirst name supports action = do
-  let target = find supports (nameAncestry name)
-  maybe (pure ()) action target
+dispatchToFirst name handler = do
+  let target = find (isJust . handler) (nameAncestry name)
+  maybe (pure ()) id (target >>= handler)
   pure target
 
 whenMainView :: EventM (MName St) St () -> EventM (MName St) St ()

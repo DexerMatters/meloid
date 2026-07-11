@@ -6,11 +6,11 @@ buttons and scroll bars.
 module Widgets.Controls (
   VolumeBar (..),
   SongProgressBar (..),
+  EQGainBarsViewport (..),
+  EQGainBar (..),
   PlayButton (..),
   RewindButton (..),
   ForwardButton (..),
-  IncreaseVolumeButton (..),
-  DecreaseVolumeButton (..),
   OkButton (..),
   SkipButton (..),
   NextButton (..),
@@ -19,32 +19,36 @@ module Widgets.Controls (
   ReverseOrderButton (..),
   ShuffleButton (..),
   ClearButton (..),
+  EQSwitch (..),
 ) where
 
 import Brick
 import Brick.Main qualified as M
 import Brick.Widgets.Core qualified as W
 import Control.Monad (forM_, when)
+import Data.Map qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Vector qualified as Vec
-import Lens.Micro ((&), (^.))
+import Lens.Micro ((%~), (&), (.~), (^.))
 import Lens.Micro.Mtl
 import Network.MPD qualified as MPD
 import Types
+import Utils
 import Widgets.Common
 
 data VolumeBar = VolumeBar
 
 data SongProgressBar = SongProgressBar
 
+data EQGainBarsViewport = EQGainBarsViewport
+
+data EQGainBar = EQGainBar Int
+
 data PlayButton = PlayButton
 
 data RewindButton = RewindButton
 
 data ForwardButton = ForwardButton
-
-data IncreaseVolumeButton = IncreaseVolumeButton
-
-data DecreaseVolumeButton = DecreaseVolumeButton
 
 data OkButton = OkButton
 
@@ -62,8 +66,16 @@ data ShuffleButton = ShuffleButton
 
 data ClearButton = ClearButton
 
+data EQSwitch = EQSwitch
+
 volumeBarWidth :: Int
 volumeBarWidth = 21
+
+eqGainBarWidth :: Int
+eqGainBarWidth = 5
+
+eqGainBarsViewportStep :: Int
+eqGainBarsViewportStep = eqGainBarWidth + 1
 
 instance Drawable St VolumeBar where
   draw _ st =
@@ -72,15 +84,19 @@ instance Drawable St VolumeBar where
         W.withAttr (attrName "progressBarComplete") $
           W.str $
             makeBar volumeBarWidth (st ^. stConfig . csVolume & fromIntegral) 100
-  handlesMouseLeftDown _ = True
-  onMouseLeftDown _ (Location (ax, ay)) = when (ay == 0) $ do
+  onMouseLeftDown _ = Just $ \(Location (ax, ay)) -> when (ay == 0) $ do
     let volume =
           max 0 . min 100 $
             if volumeBarWidth <= 1
               then 100
               else (ax * 100) `div` (volumeBarWidth - 1)
-    stConfig . csVolume .= fromIntegral volume
-    sendRequest $ MPDOperation [MPD.setVolume (fromIntegral volume)]
+    setVolumeBarValue volume
+  onMouseScrollUp' _ =
+    Just $
+      use (stConfig . csVolume) >>= setVolumeBarValue . (+ 1) . fromIntegral
+  onMouseScrollDown' _ =
+    Just $
+      use (stConfig . csVolume) >>= setVolumeBarValue . (subtract 1) . fromIntegral
   parent _ = Just (ParentView MainView)
 
 instance Drawable St SongProgressBar where
@@ -96,12 +112,10 @@ instance Drawable St SongProgressBar where
         , W.withAttr (attrName "progressBarIncomplete") $ W.str rest
         ]
   willReportExtent _ = True
-  handlesMouseLeftDown _ = True
-  onMouseLeftDown _ (Location (ax, ay)) =
+  onMouseLeftDown _ = Just $ \(Location (ax, ay)) ->
     when (ay == 0) $
       previewSongProgressAt ax
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ (Location (ax, ay)) =
+  onMouseLeftUp _ = Just $ \(Location (ax, ay)) ->
     when (ay == 0) $
       M.lookupExtent (mName SongProgressBar) >>= \case
         Just extent -> do
@@ -120,6 +134,71 @@ instance Drawable St SongProgressBar where
           pure ()
   parent _ = Just (ParentView MainView)
 
+instance Drawable St EQGainBarsViewport where
+  draw _ st =
+    W.viewport (mName EQGainBarsViewport) Horizontal $
+      W.hBox
+        [ W.padRight (W.Pad 1) $ drawNamed st (EQGainBar i)
+        | i <- zipWith const [0 ..] (st ^. stCurrentEQ . eqBands)
+        ]
+  onMouseScrollUp _ =
+    Just $
+      M.hScrollBy (viewportScroll (mName EQGainBarsViewport)) (-eqGainBarsViewportStep)
+  onMouseScrollDown _ =
+    Just $
+      M.hScrollBy (viewportScroll (mName EQGainBarsViewport)) eqGainBarsViewportStep
+  parent _ = Just (ParentView MainView)
+
+instance Drawable St EQGainBar where
+  draw (EQGainBar i) st =
+    case listToMaybe (drop i (st ^. stCurrentEQ . eqBands)) of
+      Nothing ->
+        W.emptyWidget
+      Just band ->
+        Widget Fixed Greedy $ do
+          ctx <- getContext
+          let totalHeight = max 5 (ctx ^. availHeightL)
+              sliderHeight = max 3 (totalHeight - 2)
+              gain = band ^. eqBandGainDb
+              thumbY = gainBarThumbY sliderHeight gain
+              zeroY = gainBarThumbY sliderHeight 0
+              freqLabel = formatFrequencyLabel (band ^. eqBandFrequencyHz)
+              renderRow y
+                | y == thumbY =
+                    W.withAttr (attrName "progressBarComplete") $
+                      W.str " ╞█╡ "
+                | y == zeroY =
+                    W.withAttr (attrName "progressBarComplete") $
+                      W.str "  ┼  "
+                | between thumbY zeroY y =
+                    W.withAttr (attrName "progressBarComplete") $
+                      W.str "  │  "
+                | otherwise =
+                    W.withAttr (attrName "progressBarIncomplete") $
+                      W.str "  │  "
+          render $
+            W.vBox $
+              [ W.withAttr (attrName "header") $
+                  W.str (centerText eqGainBarWidth (formatGainDb gain))
+              ]
+                <> [renderRow y | y <- [0 .. sliderHeight - 1]]
+                <> [ W.withAttr (attrName "meta") $
+                       W.str (centerText eqGainBarWidth freqLabel)
+                   ]
+  willReportExtent _ = True
+  onMouseLeftDown (EQGainBar i) =
+    Just $ \(Location (_, ay)) ->
+      updateEQGainBarAt i ay
+  onMouseLeftUp (EQGainBar i) =
+    Just $ \(Location (_, ay)) ->
+      updateEQGainBarAt i ay
+  onMouseScrollUp' (EQGainBar i) =
+    Just $ currentEQGainBarValue i >>= setEQGainBarValue i . (+ 1)
+  onMouseScrollDown' (EQGainBar i) =
+    Just $ currentEQGainBarValue i >>= setEQGainBarValue i . (subtract 1)
+  parent _ = Just (ParentName (mName EQGainBarsViewport))
+  variant (EQGainBar i) = i
+
 instance Drawable St PlayButton where
   draw _ st =
     drawIconButton
@@ -129,9 +208,7 @@ instance Drawable St PlayButton where
           then "|>"
           else "||"
       )
-  isClickable _ = True
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ _ = do
+  onMouseLeftUp _ = Just $ \_ -> do
     stPlaying . psPaused %= not
     paused <- use $ stPlaying . psPaused
     sendRequest . MPDOperation . pure $
@@ -140,9 +217,7 @@ instance Drawable St PlayButton where
 
 instance Drawable St RewindButton where
   draw _ st = drawIconButton st (mName RewindButton) "<<"
-  isClickable _ = True
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ _ = do
+  onMouseLeftUp _ = Just $ \_ -> do
     current <- use $ stPlaying . psCurrentSong
     stPlaying . psPaused .= False
     sendRequest $ MPDOperation [MPD.play $ current >>= MPD.sgIndex]
@@ -150,71 +225,43 @@ instance Drawable St RewindButton where
 
 instance Drawable St ForwardButton where
   draw _ st = drawIconButton st (mName ForwardButton) ">>"
-  isClickable _ = True
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ _ = do
+  onMouseLeftUp _ = Just $ \_ -> do
     stPlaying . psPaused .= False
     sendRequest $ MPDOperation [MPD.next]
   parent _ = Just (ParentView MainView)
 
-instance Drawable St IncreaseVolumeButton where
-  draw _ st = drawIconButton st (mName IncreaseVolumeButton) "+ "
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ _ = do
-    currentVol <- use $ stConfig . csVolume
-    let newVol = min 100 (currentVol + 1)
-    stConfig . csVolume .= newVol
-    sendRequest $ MPDOperation [MPD.setVolume (fromIntegral newVol)]
-  parent _ = Just (ParentView MainView)
-
-instance Drawable St DecreaseVolumeButton where
-  draw _ st = drawIconButton st (mName DecreaseVolumeButton) "- "
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ _ = do
-    currentVol <- use $ stConfig . csVolume
-    let newVol = max 0 (currentVol - 1)
-    stConfig . csVolume .= newVol
-    sendRequest $ MPDOperation [MPD.setVolume (fromIntegral newVol)]
-  parent _ = Just (ParentView MainView)
-
 instance Drawable St OkButton where
   draw _ st = drawButton st (mName OkButton) "    OK    "
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ _ = closeDialog
+  onMouseLeftUp _ = Just $ \_ -> closeDialog
   parent _ = Just (ParentView SimpleDialog)
 
 instance Drawable St SkipButton where
   draw _ st = drawButton st (mName SkipButton) "   SKIP   "
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ _ = do
+  onMouseLeftUp _ = Just $ \_ -> do
     closeDialog
     stDialog .? dsPage .= 1
   parent _ = Just (ParentView WelcomeDialog)
 
 instance Drawable St NextButton where
   draw _ st = drawButton st (mName NextButton) "   NEXT   "
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ _ = stDialog .? dsPage %= (+ 1)
+  onMouseLeftUp _ = Just $ \_ -> stDialog .? dsPage %= (+ 1)
   parent _ = Just (ParentView WelcomeDialog)
 
 instance Drawable St FinishButton where
   draw _ st = drawButton st (mName FinishButton) "   FINISH   "
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ _ = do
+  onMouseLeftUp _ = Just $ \_ -> do
     closeDialog
     stDialog .? dsPage .= 1
   parent _ = Just (ParentView WelcomeDialog)
 
 instance Drawable St PrevButton where
   draw _ st = drawButton st (mName PrevButton) "   PREV   "
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ _ = stDialog .? dsPage %= subtract 1
+  onMouseLeftUp _ = Just $ \_ -> stDialog .? dsPage %= subtract 1
   parent _ = Just (ParentView WelcomeDialog)
 
 instance Drawable St ReverseOrderButton where
   draw _ st = drawIconButton st (mName ReverseOrderButton) "↑↓"
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ _ = do
+  onMouseLeftUp _ = Just $ \_ -> do
     queue <- use $ stPlaying . psCurrentQueue
     sendRequest . MPDOperation . pure $
       forM_ (reverseQueueMoves $ Vec.length queue) $
@@ -224,8 +271,7 @@ instance Drawable St ReverseOrderButton where
 
 instance Drawable St ShuffleButton where
   draw _ st = drawIconButton st (mName ShuffleButton) "⇡⇣"
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ _ = do
+  onMouseLeftUp _ = Just $ \_ -> do
     sendRequest $ MPDOperation $ pure $ do
       MPD.shuffle Nothing
     sendRequest $ SignalCurrentQueue
@@ -233,26 +279,28 @@ instance Drawable St ShuffleButton where
 
 instance Drawable St ClearButton where
   draw _ st = drawIconButton st (mName ClearButton) "><"
-  handlesMouseLeftUp _ = True
-  onMouseLeftUp _ _ = do
+  onMouseLeftUp _ = Just $ \_ -> do
     sendRequest $ MPDOperation $ pure $ do
       MPD.clear
     sendRequest $ SignalCurrentQueue
+  parent _ = Just (ParentView MainView)
+
+instance Drawable St EQSwitch where
+  draw _ st = drawButton st (mName EQSwitch) icon
+   where
+    icon
+      | st ^. stIsTriggered (mName EQSwitch) = " GO CURVE "
+      | otherwise = " GO TWEAK "
+  onMouseLeftUp n = Just $ \_ ->
+    use (stIsTriggered (mName n)) >>= \case
+      True -> unTrigger (mName n)
+      False -> trigger (mName n)
   parent _ = Just (ParentView MainView)
 
 reverseQueueMoves :: Int -> [(MPD.Position, MPD.Position)]
 reverseQueueMoves queueLength =
   let lastPosition = fromIntegral (queueLength - 1)
    in [(lastPosition, fromIntegral target) | target <- [0 .. queueLength - 2]]
-
-songProgressTarget :: Int -> Int -> Double -> Double
-songProgressTarget width x total =
-  max 0 . min total $
-    if width <= 1
-      then total
-      else fromIntegral clampedX * total / fromIntegral (width - 1)
- where
-  clampedX = max 0 $ min (width - 1) x
 
 previewSongProgressAt :: Int -> EventM (MName St) St ()
 previewSongProgressAt x =
@@ -266,3 +314,52 @@ previewSongProgressAt x =
           pure ()
     Nothing ->
       pure ()
+
+setVolumeBarValue :: Int -> EventM (MName St) St ()
+setVolumeBarValue volume = do
+  let clampedVolume = max 0 (min 100 volume)
+  stConfig . csVolume .= fromIntegral clampedVolume
+  sendRequest $ MPDOperation [MPD.setVolume (fromIntegral clampedVolume)]
+
+updateEQGainBarAt :: Int -> Int -> EventM (MName St) St ()
+updateEQGainBarAt bandIndex y =
+  M.lookupExtent (mName (EQGainBar bandIndex)) >>= \case
+    Just extent -> do
+      let (_, height) = extentSize extent
+          sliderHeight = max 3 (height - 2)
+          sliderY = max 0 (min (sliderHeight - 1) (y - 1))
+          gain = gainBarValue sliderHeight sliderY
+      setEQGainBarValue bandIndex gain
+    Nothing ->
+      pure ()
+
+currentEQGainBarValue :: Int -> EventM (MName St) St Double
+currentEQGainBarValue bandIndex = do
+  currentId <- use (stConfig . csConfigs . cvEq)
+  configs <- use (stConfig . csEQConfigs)
+  pure $
+    case Map.lookup currentId configs >>= listToMaybe . drop bandIndex . (^. eqBands) of
+      Just band -> band ^. eqBandGainDb
+      Nothing -> 0
+
+setEQGainBarValue :: Int -> Double -> EventM (MName St) St ()
+setEQGainBarValue bandIndex gain = do
+  currentId <- use (stConfig . csConfigs . cvEq)
+  stConfig . csEQConfigs %= Map.adjust adjustBand currentId
+ where
+  snappedGain =
+    snapToTenths $
+      clampValue (-eqGainBarNudgeLimitDb) eqGainBarNudgeLimitDb gain
+  adjustBand =
+    eqBands %~ zipWith updateBand [0 :: Int ..]
+  updateBand i band
+    | i == bandIndex = band & eqBandGainDb .~ snappedGain
+    | otherwise = band
+
+centerText :: Int -> String -> String
+centerText width s =
+  let clipped = take width s
+      padding = max 0 (width - length clipped)
+      left = padding `div` 2
+      right = padding - left
+   in replicate left ' ' <> clipped <> replicate right ' '

@@ -63,6 +63,12 @@ defaultTheme =
     , (a "scrollBarTrack", currentAttr)
     , (a "progressBarIncomplete", black `on` secondary)
     , (a "progressBarComplete", primary `on` secondary)
+    , -- Equalizer
+      (a "eqDefault", currentAttr)
+    , (a "eqMuted", fg brightBlack)
+    , (a "eqAccent", currentAttr `withForeColor` accent)
+    , (a "eqAccentBold", currentAttr `withForeColor` accent `withStyle` bold)
+    , (a "eqPrimaryBold", currentAttr `withForeColor` primary `withStyle` bold)
     , -- Log
       (a "debugLog", fg $ brightBlack)
     , (a "infoLog", fg $ white)

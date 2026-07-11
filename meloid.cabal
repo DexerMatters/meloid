@@ -36,10 +36,9 @@ executable meloid
   import:           warnings
   ghc-options:      -threaded
   main-is:          Main.hs
-  autogen-modules:
-    Paths_meloid
   other-modules:
     Attrs
+    Utils
     Sys
     Image
     Cmd
@@ -55,12 +54,13 @@ executable meloid
     Handle
     Widgets
     Widgets.Common
-    Widgets.Images
     Widgets.Layer
     Widgets.Lists
     Widgets.Controls
     Widgets.Views
     Widgets.Edits
+    Widgets.Visual.EQ
+    Widgets.Visual.Art
     Compat.Image
     Compat.Term
     Compat.Ansi

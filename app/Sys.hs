@@ -74,8 +74,14 @@ musicPlayerThread reqChan evChan = do
           , "Do you have MPD installed and running?"
           , "You can follow the instructions at https://mpd.readthedocs.io/en/stable/user.html to install it."
           ]
-    Right MPD.Status{stError = Just err} ->
-      panic $ "MPD is not available. Error: \n" <> err
+    Right MPD.Status{stError = Just err} -> do
+      log "MPD is available."
+      logEv evChan Warn "MPD" $
+        unlines
+          [ "MPD reported an output error:"
+          , err
+          , "The app will continue, but playback may not work until the audio output is fixed."
+          ]
     Right _ ->
       log "MPD is available."
 
@@ -134,6 +140,12 @@ musicPlayerThread reqChan evChan = do
             pure Nothing
       MPDOperation op ->
         Just . void <$> MPD.withMPD (sequence op)
+      UpdateEQId eqId -> do
+        updateModuleEQId PipeWire eqId
+        runExceptT
+          (restartAudioServer PipeWire)
+          >>= either panic pure
+        pure Nothing
       -- This is matched when the app starts.
       -- It loads everything that is needed for the UI.
       GetConfig -> do
@@ -171,7 +183,6 @@ musicPlayerThread reqChan evChan = do
                   , _csAllAlbums = Vec.fromList albums
                   , _csConfigs = configs
                   , _csEQConfigs = eqConfigs
-                  , _csCurrentEQ = configs ^. cvEq
                   }
         either (pure . Just . Left) (const $ pure Nothing) result
 

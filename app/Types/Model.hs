@@ -22,13 +22,13 @@ module Types.Model (
   stPressed,
   stSongProgressPreview,
   stLastRightPressed,
+  stTriggeredNames,
   stCurrentView,
   stLastView,
   stDialog,
   stMenu,
   stMode,
   stDialogView,
-  stSelectedEQ,
   stSelectedAlbum,
   stSelectedPlaylist,
   stConfig,
@@ -46,7 +46,6 @@ module Types.Model (
   csAllAlbums,
   csConfigs,
   csEQConfigs,
-  csCurrentEQ,
   -- PlayingSt lenses
   psCurrentSong,
   psCurrentTime,
@@ -67,6 +66,7 @@ import Brick.Types (EventM, Extent)
 import Brick.Widgets.Edit qualified as E
 import Compat.Term (ImageFormat, TermType)
 import Data.Map qualified as Map
+import Data.Set qualified as Set
 import Data.Vector qualified as Vec
 import Lens.Micro.TH (makeLenses)
 import Network.MPD qualified as MPD
@@ -108,7 +108,6 @@ data ConfigSt = ConfigSt
     _csConfigs :: ConfigValue
   , -- Eq config loaded from /eq/*
     _csEQConfigs :: Map.Map String EQConfigValue
-  , _csCurrentEQ :: String
   }
 
 makeLenses ''ConfigSt
@@ -144,9 +143,9 @@ data St
   { _stEdits :: EditSt' St
   , _stPressed :: Maybe (MName St)
   , _stSongProgressPreview :: Maybe (Double, Double)
+  , _stTriggeredNames :: Set.Set (MName St)
   , _stLastRightPressed :: Maybe (MName St)
   , _stCurrentView :: Maybe ViewName
-  , _stSelectedEQ :: String
   , _stLastView :: Maybe ViewName
   , _stDialog :: Maybe DialogSt
   , _stMenu :: Maybe [(String, EventM (MName St) St ())]

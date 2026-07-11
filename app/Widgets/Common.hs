@@ -18,6 +18,8 @@ module Widgets.Common (
   openMenu,
   scrollViewportBy,
   strClippedWithEllipsis,
+  strFillingAvailableWidth,
+  viewportWithBar,
 )
 where
 
@@ -35,6 +37,7 @@ import Lens.Micro ((^.))
 import Lens.Micro.Mtl
 import Network.MPD qualified as MPD
 import Types
+import Utils (ceilingDiv)
 
 {- | Draws a button with the ability to change the attributes when
 pressed.
@@ -42,7 +45,7 @@ pressed.
 drawButton :: St -> MName St -> String -> Widget (MName St)
 drawButton st name label =
   W.withAttr (attrName "button" <> pressedAttr st name) $
-    W.str label
+    strClippedWithEllipsis label
 
 {- | Draws an icon button which is similar to a button but it has a
 more conspicuous look. Fonts are also bolder.
@@ -82,8 +85,7 @@ instance Drawable St ScrollBar where
         W.vBox $
           fmap drawTrackCell $
             scrollbarThumb height total scrollTop
-  handlesMouseLeftDown _ = True
-  onMouseLeftDown (ScrollBar target) (Location (ax, ay)) =
+  onMouseLeftDown (ScrollBar target) = Just $ \(Location (ax, ay)) ->
     when (ax == 0) $
       B.lookupViewport target >>= \case
         Nothing ->
@@ -125,6 +127,13 @@ strClippedWithEllipsis s =
           if length s > width && width > 3
             then take (width - 3) s <> "..."
             else take width s
+
+strFillingAvailableWidth :: String -> Widget n
+strFillingAvailableWidth s =
+  Widget Greedy Fixed $ do
+    ctx <- getContext
+    let width = ctx ^. availWidthL
+    render . W.str $ s <> replicate (width - length s) ' '
 
 scrollbarThumb :: Int -> Int -> Int -> [Bool]
 scrollbarThumb height total scrollTop
@@ -181,9 +190,6 @@ makeBarWith steps fullChar partialChars fullWidth count total
     | remainder == 0 = ""
     | otherwise = [partialChars !! (remainder - 1)]
   prefix = replicate fullCells fullChar <> partial
-
-ceilingDiv :: Int -> Int -> Int
-ceilingDiv numerator denominator = (numerator + denominator - 1) `div` denominator
 
 -- | Draws a list of albums.
 drawAlbumList ::

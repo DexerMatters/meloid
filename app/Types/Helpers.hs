@@ -16,7 +16,10 @@ module Types.Helpers (
   stCurrentSongMeta',
   stCurrentSongMeta,
   stCurrentSongPos,
+  stCurrentEQ,
+  stCurrentEQIndex,
   stShownCurrentTime,
+  stIsTriggered,
   formatSecs,
   (.?),
 ) where
@@ -24,15 +27,19 @@ module Types.Helpers (
 import Data.List (sortBy)
 import Data.List.NonEmpty (NonEmpty, fromList)
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Map ((!?))
+import Data.Map qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Set qualified as Set
 import Data.Vector qualified as Vec
 import Lens.Micro (to, (<&>), (^.), _Just)
 import Lens.Micro.Type (SimpleGetter)
 import Network.MPD qualified as MPD
 import Text.Read (readMaybe)
 import Types.Core
+import Types.Identity (MName)
 import Types.Model
+import Types.Schemas (EQConfigValue, cvEq)
+import Utils (formatSecs)
 
 -- | Size reserved for the large now-playing art slot.
 albumArtPlayingSize :: ImageSize
@@ -50,7 +57,7 @@ defaultAlbum =
 -- | Read metadata from a song, providing a stable fallback string.
 songMeta :: MPD.Metadata -> MPD.Song -> NonEmpty String
 songMeta meta song =
-  fromMaybe (pure $ unknown meta) (MPD.sgTags song !? meta <&> fromList . fmap MPD.toString)
+  fromMaybe (pure $ unknown meta) (MPD.sgTags song Map.!? meta <&> fromList . fmap MPD.toString)
  where
   unknown MPD.Artist = "Unknown Artist"
   unknown MPD.Album = "Unknown Album"
@@ -77,7 +84,7 @@ songAlbumArtKey song =
     Just album -> "album:" <> fromMaybe "" (tag MPD.Artist) <> "\0" <> album
     Nothing -> "file:" <> MPD.toString (MPD.sgFilePath song)
  where
-  tag meta = MPD.toString <$> (MPD.sgTags song !? meta >>= listToMaybe)
+  tag meta = MPD.toString <$> (MPD.sgTags song Map.!? meta >>= listToMaybe)
 
 -- | Derive a stable album-art key from an album record.
 albumArtKey :: Album -> AlbumArtKey
@@ -101,13 +108,13 @@ stCurrentAlbum = to $ \st -> do
 stCurrentAlbumArt :: SimpleGetter St (Maybe AlbumArt)
 stCurrentAlbumArt = to $ \st ->
   st ^. stCurrentAlbum >>= \album ->
-    (st ^. stPicCache) !? albumArtKey album
+    (st ^. stPicCache) Map.!? albumArtKey album
 
 -- | The raw metadata of the current song, preserving missingness.
 stCurrentSongMeta' :: MPD.Metadata -> SimpleGetter St (Maybe (NonEmpty MPD.Value))
 stCurrentSongMeta' meta = stPlaying . psCurrentSong . to f
  where
-  f (Just s) = fromList <$> MPD.sgTags s !? meta
+  f (Just s) = fromList <$> MPD.sgTags s Map.!? meta
   f Nothing = Nothing
 
 -- | The position of the current song inside the active queue.
@@ -118,12 +125,15 @@ stCurrentSongPos = stPlaying . psCurrentSong . to (>>= MPD.sgIndex)
 stCurrentSongMeta :: MPD.Metadata -> SimpleGetter St (NonEmpty String)
 stCurrentSongMeta meta = stPlaying . psCurrentSong . to (fromList . f)
  where
-  f (Just s) = fromMaybe [unknown meta] (MPD.sgTags s !? meta <&> fmap MPD.toString)
+  f (Just s) = fromMaybe [unknown meta] (MPD.sgTags s Map.!? meta <&> fmap MPD.toString)
   f Nothing = [unknown meta]
   unknown MPD.Artist = "Unknown Artist"
   unknown MPD.Album = "Unknown Album"
   unknown MPD.Title = "Unknown Title"
   unknown _ = "Unknown"
+
+stIsTriggered :: MName St -> SimpleGetter St Bool
+stIsTriggered name = to $ \st -> Set.member name (st ^. stTriggeredNames)
 
 -- | The time shown in the UI, taking drag previews into account.
 stShownCurrentTime :: SimpleGetter St (Maybe (Double, Double))
@@ -133,12 +143,17 @@ stShownCurrentTime =
       Just previewTime -> Just previewTime
       Nothing -> st ^. stPlaying . psCurrentTime
 
--- | Format seconds as `m:ss`.
-formatSecs :: Integer -> String
-formatSecs totalSecs = show mins ++ ":" ++ ensureTwoDigits secs
- where
-  (mins, secs) = totalSecs `divMod` 60
-  ensureTwoDigits n = if n < 10 then "0" ++ show n else show n
+-- | The current EQ config value.
+stCurrentEQ :: SimpleGetter St EQConfigValue
+stCurrentEQ = to $ \st ->
+  -- SAFETY: It is guaranteed at the config loading stage
+  (st ^. stConfig . csEQConfigs) Map.! (st ^. stConfig . csConfigs . cvEq)
+
+-- | The current EQ config index.
+stCurrentEQIndex :: SimpleGetter St (Maybe Int)
+stCurrentEQIndex = to $ \st ->
+  -- SAFETY: It is guaranteed at the config loading stage
+  Map.lookupIndex (st ^. stConfig . csConfigs . cvEq) (st ^. stConfig . csEQConfigs)
 
 -- | Lens helper for optional nested fields.
 (.?) :: (Applicative f) => ((Maybe a1 -> f (Maybe a')) -> c) -> (a2 -> a1 -> f a') -> a2 -> c

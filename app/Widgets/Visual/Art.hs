@@ -1,15 +1,13 @@
-{-# LANGUAGE LambdaCase #-}
-
-{- | This module provides widgets to display an image.
-There is the way to wrap the album art into the Brick's
-widget. However, when the image format supports high
-resolution, the widget is just a placeholder.
+{- | This module provides widgets for album art.
+It provides a placeholder for album art when the image
+format supports high resolution and fallbacks to an ANSI
+symbol when the image format does not support high resolution.
 -}
-module Widgets.Images (
-  AlbumArtPlaying (..),
-  lookupAlbumThumbRenderedImage,
-  lookupPlayingRenderedImage,
+module Widgets.Visual.Art (
   renderImage,
+  lookupPlayingRenderedImage,
+  lookupAlbumThumbRenderedImage,
+  AlbumArtPlaying (..),
 ) where
 
 import Brick

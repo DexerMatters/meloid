@@ -32,13 +32,9 @@ import Types
 import Widgets.Common
 import Widgets.Controls
 import Widgets.Edits (CommandEditor (CommandEditor))
-import Widgets.Images (AlbumArtPlaying (..), lookupAlbumThumbRenderedImage)
-import Widgets.Lists (
-  AlbumArtThumb (..),
-  AlbumSongList (..),
-  AllAlbumList (..),
-  QueueSongList (..),
- )
+import Widgets.Lists
+import Widgets.Visual.Art
+import Widgets.Visual.EQ
 
 data DebugViewport = DebugViewport
 
@@ -263,10 +259,8 @@ instance Drawable St DebugViewport where
                     Error -> "errorLog"
             ]
   parent _ = Just (ParentView DebugView)
-  handlesMouseScrollUp _ = True
-  handlesMouseScrollDown _ = True
-  onMouseScrollUp _ = scrollViewportBy (mName DebugViewport) (-1)
-  onMouseScrollDown _ = scrollViewportBy (mName DebugViewport) 1
+  onMouseScrollUp _ = Just $ scrollViewportBy (mName DebugViewport) (-1)
+  onMouseScrollDown _ = Just $ scrollViewportBy (mName DebugViewport) 1
 
 drawAllAlbumList :: St -> Widget (MName St)
 drawAllAlbumList st =
@@ -310,19 +304,13 @@ drawControlPanel :: St -> Widget (MName St)
 drawControlPanel st =
   W.hLimit 21 $
     W.vBox
-      [ W.hBox
-          [ W.vBox
-              [ drawNamed st IncreaseVolumeButton
-              , drawNamed st DecreaseVolumeButton
-              ]
-          , W.vBox
-              [ W.str $ "TIME " <> formatSecs (floor elapsed) <> "/" <> formatSecs (floor total)
-              , W.hBox
-                  [ W.str $ "VOL  " <> show (st ^. stConfig . csVolume) <> "%"
-                  , W.padLeft W.Max $ drawNamed st RewindButton
-                  , W.padLeft (W.Pad 1) $ drawNamed st PlayButton
-                  , W.padLeft (W.Pad 1) $ drawNamed st ForwardButton
-                  ]
+      [ W.vBox
+          [ W.str $ "TIME " <> formatSecs (floor elapsed) <> "/" <> formatSecs (floor total)
+          , W.hBox
+              [ W.str $ "VOL  " <> show (st ^. stConfig . csVolume) <> "%"
+              , W.padLeft W.Max $ drawNamed st RewindButton
+              , W.padLeft (W.Pad 1) $ drawNamed st PlayButton
+              , W.padLeft (W.Pad 1) $ drawNamed st ForwardButton
               ]
           ]
       , drawNamed st VolumeBar
@@ -340,6 +328,25 @@ drawCurrentQueueList st =
         , W.padLeft (W.Pad 1) . W.padRight (W.Pad 1) $ drawNamed st ClearButton
         ]
     , drawNamed st QueueSongList
+    ]
+
+drawEqualizerPanel :: St -> Widget (MName St)
+drawEqualizerPanel st
+  | Map.null (st ^. stConfig . csEQConfigs) = W.emptyWidget
+drawEqualizerPanel st =
+  W.vBox
+    [ W.hBox
+        [ withAttr
+            (attrName "label")
+            (W.str " EQUALIZER ")
+        , W.padLeft W.Max $ drawNamed st EQSwitch
+        ]
+    , W.hBox
+        [ W.hLimit 11 $ drawNamed st EQConfigList
+        , case st ^. stIsTriggered (mName EQSwitch) of
+            False -> drawNamed st EQCurveVisualizer
+            True -> W.padLeft (W.Pad 1) $ drawNamed st EQGainBarsViewport
+        ]
     ]
 
 drawBottomBar :: St -> Widget (MName St)

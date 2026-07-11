@@ -51,6 +51,7 @@ data Request
   | SignalQuit
   | SignalCurrentQueue
   | LogConfig LogLevel String
+  | UpdateEQId String
   | GetConfig
 
 -- | Work items for image extraction and conversion.
