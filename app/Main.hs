@@ -85,6 +85,7 @@ defaultSt =
           { _esCommand = (E.editor (mName CommandEditor) Nothing "")
           }
     , _stPressed = Nothing
+    , _stLastLeftClick = Nothing
     , _stTriggeredNames = Set.empty
     , _stTabStates = Map.empty
     , _stSongProgressPreview = Nothing
@@ -97,6 +98,7 @@ defaultSt =
     , _stMode = NormalMode
     , _stSelectedAlbum = Nothing
     , _stSelectedPlaylist = 0
+    , _stSelectedSong = Nothing
     , _stConfig =
         ConfigSt
           { _csVolume = 0

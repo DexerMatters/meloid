@@ -54,6 +54,8 @@ class (Typeable a) => Drawable st a | a -> st where
   onMouseLeftDown _ = Nothing
   onMouseLeftUp :: a -> Maybe (Location -> EventM (MName st) st ())
   onMouseLeftUp _ = Nothing
+  onMouseDoubleClick :: a -> Maybe (Location -> EventM (MName st) st ())
+  onMouseDoubleClick _ = Nothing
   onMouseRightUp :: a -> Maybe (Location -> EventM (MName st) st ())
   onMouseRightUp _ = Nothing
   onMouseScrollUp :: a -> Maybe (EventM (MName st) st ())
@@ -136,6 +138,7 @@ hasMouseHandler :: (Drawable st a) => a -> Bool
 hasMouseHandler a =
   isJust (onMouseLeftDown a)
     || isJust (onMouseLeftUp a)
+    || isJust (onMouseDoubleClick a)
     || isJust (onMouseRightUp a)
     || isJust (onMouseScrollUp a)
     || isJust (onMouseScrollDown a)

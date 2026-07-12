@@ -15,7 +15,9 @@ module Types.Helpers (
   stCurrentAlbumArt,
   stCurrentSongMeta',
   stCurrentSongMeta,
+  stSelectedSongMeta,
   stCurrentSongPos,
+  stSelectedAlbumSongs,
   stCurrentEQ,
   stCurrentEQIndex,
   stLayoutElement,
@@ -132,6 +134,22 @@ stCurrentSongMeta meta = stPlaying . psCurrentSong . to (fromList . f)
   unknown MPD.Album = "Unknown Album"
   unknown MPD.Title = "Unknown Title"
   unknown _ = "Unknown"
+
+-- | The human-readable metadata of the selected song.
+stSelectedSongMeta :: MPD.Metadata -> SimpleGetter St (NonEmpty String)
+stSelectedSongMeta meta = stSelectedSong . to (fromList . f)
+ where
+  f (Just s) = fromMaybe [unknown meta] (MPD.sgTags s Map.!? meta <&> fmap MPD.toString)
+  f Nothing = [unknown meta]
+  unknown MPD.Artist = "Unknown Artist"
+  unknown MPD.Album = "Unknown Album"
+  unknown MPD.Title = "Unknown Title"
+  unknown _ = "Unknown"
+
+stSelectedAlbumSongs :: SimpleGetter St (Vec.Vector MPD.Song)
+stSelectedAlbumSongs = to $ \st ->
+  maybe Vec.empty albumSongs $
+    (st ^. stSelectedAlbum) >>= ((st ^. stConfig . csAllAlbums) Vec.!?)
 
 stIsTriggered :: MName St -> SimpleGetter St Bool
 stIsTriggered name = to $ \st -> Set.member name (st ^. stTriggeredNames)

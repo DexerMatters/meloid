@@ -71,6 +71,7 @@ data LayoutElement
   | ETrackList
   | ECurrentQueue
   | EEqualizer
+  | ESongInfo
   | EPlaceholder
   deriving (Eq, Show, Generic)
 
@@ -82,6 +83,7 @@ formatElementName EAlbumList = "albumList"
 formatElementName ETrackList = "trackList"
 formatElementName ECurrentQueue = "currentQueue"
 formatElementName EEqualizer = "equalizer"
+formatElementName ESongInfo = "songInfo"
 formatElementName (ETabs _) = "tabs"
 formatElementName EPlaceholder = "placeholder"
 
@@ -91,6 +93,7 @@ parseElementName "albumList" = Just EAlbumList
 parseElementName "trackList" = Just ETrackList
 parseElementName "currentQueue" = Just ECurrentQueue
 parseElementName "equalizer" = Just EEqualizer
+parseElementName "songInfo" = Just ESongInfo
 parseElementName "placeholder" = Just EPlaceholder
 parseElementName _ = Nothing
 

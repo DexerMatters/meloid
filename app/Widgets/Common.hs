@@ -294,7 +294,7 @@ drawSongRow st entryName i songs orderMapping =
   case songs Vec.!? i of
     Nothing -> W.emptyWidget
     Just song ->
-      drawGeneralButton st (mName $ entryName i) $
+      withStyle song . drawGeneralButton st (mName $ entryName i) $
         W.hBox
           [ W.hLimit 3 . W.withAttr (attrName "text") $
               W.str $
@@ -304,6 +304,10 @@ drawSongRow st entryName i songs orderMapping =
           , W.withAttr (attrName "text") $ W.fill '.'
           , W.str $ formatSecs (MPD.sgLength song)
           ]
+ where
+  withStyle song
+    | st ^. stSelectedSong == Just song = W.withDefAttr (attrName "focused")
+    | otherwise = id
 
 drawTrackCell :: Bool -> Widget (MName St)
 drawTrackCell True =

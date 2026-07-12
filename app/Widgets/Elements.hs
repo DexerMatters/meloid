@@ -1,9 +1,11 @@
+{- | This module contains all the widgets that represent
+elements in the layout editor.
+Elements are the building blocks of a layout, which can
+be moved, resized, deleted, and added to by the user.
+-}
 module Widgets.Elements (
   ElementScaffoldName (..),
   ElementName (..),
-  HeaderName (..),
-  CollapsingSwitch (..),
-  ElementPath,
   displayElementName,
 ) where
 
@@ -30,18 +32,31 @@ moving, resizing, deleting, and adding new elements.
 data ElementScaffoldName = ElementScaffoldName ElementPath
   deriving (Show, Eq)
 
+{- | The representation of layout elements in the non-edit
+mode. They appear as widgets in the non-edit mode.
+-}
 data ElementName = ElementName ElementPath
   deriving (Show, Eq)
 
+{- | The headers of layout elements in the non-edit mode.
+They contain some buttons and a collapsing switch.
+-}
 data HeaderName = HeaderName ElementPath
   deriving (Show, Eq)
 
 data CollapsingSwitch = CollapsingSwitch ElementPath
   deriving (Show, Eq)
 
+data CollapsingSwitch' = CollapsingSwitch' ElementPath
+  deriving (Show, Eq)
+
+data TabButton = TabButton ElementPath
+  deriving (Show, Eq)
+
 -- | The location of an element in the layout tree.
 type ElementPath = [Int]
 
+-- | Compute the variant number of an element path.
 pathVariant :: ElementPath -> Int
 pathVariant = foldl' (\acc i -> acc * 131 + i + 1) 0
 
@@ -53,6 +68,7 @@ displayElementName EAlbumList = "ALBUMS"
 displayElementName ETrackList = "TRACKS"
 displayElementName ECurrentQueue = "QUEUE"
 displayElementName EEqualizer = "EQUALIZER"
+displayElementName ESongInfo = "INFO"
 displayElementName EPlaceholder = "EMPTY"
 
 instance Drawable St ElementName where
@@ -61,58 +77,81 @@ instance Drawable St ElementName where
     | otherwise =
         case st ^. stLayoutElement path of
           Nothing -> W.emptyWidget
-          Just element -> drawElement path element st
+          Just element -> drawElement path st element
   parent (ElementName path) = case path of
     [] -> Just (ParentView MainView)
     is -> ParentName . mName . ElementName . fst <$> unsnoc is
   variant (ElementName path) = pathVariant path
 
 -- | Draw all the elements of a layout element.
-drawElement :: ElementPath -> LayoutElement -> St -> Widget (MName St)
-drawElement path element st =
-  go path element
+drawElement :: ElementPath -> St -> LayoutElement -> Widget (MName St)
+drawElement path st = go True path
  where
-  go currentPath = \case
+  go framed currentPath = \case
     EHBox weights children ->
-      W.hBox $
-        applyElementSpacing (W.padLeft (W.Pad 1)) children $
-          zipWith W.hLimitPercent (layoutPercents weights children) $
-            drawChildren children
+      drawBox W.hBox W.hLimitPercent (W.padLeft (W.Pad 1)) currentPath weights children
     EVBox weights children ->
-      W.vBox $
-        applyElementSpacing (W.padTop (W.Pad 1)) children $
-          zipWith W.vLimitPercent (layoutPercents weights children) $
-            drawChildren children
+      drawBox W.vBox W.vLimitPercent (W.padTop (W.Pad 1)) currentPath weights children
     ETabs children ->
-      drawTabs currentPath children
+      frame framed currentPath $
+        maybe W.emptyWidget (uncurry (go False)) (currentTabElement currentPath children)
     EAlbumList ->
-      drawLeaf currentPath st drawAllAlbumList
+      frame framed currentPath $ drawNamed st AllAlbumList
     ETrackList ->
-      drawLeaf currentPath st drawTrackList
+      frame framed currentPath $ drawNamed st TrackList
     ECurrentQueue ->
-      drawLeaf currentPath st drawCurrentQueueList
+      frame framed currentPath $ drawNamed st QueueSongList
     EEqualizer ->
-      drawLeaf currentPath st drawEqualizerPanel
+      frame framed currentPath $ drawEqualizerPanel st
+    ESongInfo ->
+      frame framed currentPath $ drawNamed st SongInfoList
     EPlaceholder ->
       W.emptyWidget
-   where
-    drawChildren :: [LayoutElement] -> [Widget (MName St)]
-    drawChildren children =
-      drawNamed st . ElementName <$> childPaths children currentPath
 
-    drawTabs :: ElementPath -> [LayoutElement] -> Widget (MName St)
-    drawTabs _path _children = W.emptyWidget -- TODO
-    drawLeaf p st' drawBody =
-      W.vBox $
-        [ drawNamed st' (HeaderName p)
-        , bool W.emptyWidget (drawBody st') (isCollapsed p st')
+  drawBox box limit pad currentPath weights children =
+    box $
+      applyElementSpacing pad children $
+        fitChildren limit currentPath weights children $
+          drawNamed st . ElementName <$> childPaths children currentPath
+
+  frame framed currentPath body
+    | not framed = body
+    | otherwise =
+        W.vBox
+          [ drawNamed st (HeaderName currentPath)
+          , bool W.emptyWidget body (isCollapsed currentPath)
+          ]
+
+  isCollapsed p = not $ st ^. stIsTriggered (mName $ ElementName p)
+
+  currentTabIndex currentPath =
+    Map.findWithDefault 0 currentPath (st ^. stTabStates)
+
+  currentTabElement currentPath children =
+    let childPath = childPaths children currentPath !? currentTabIndex currentPath
+     in childPath >>= \p -> (\element -> (p, element)) <$> (st ^. stLayoutElement p)
+
+  fitChildren limit currentPath weights children widgets =
+    snd $
+      mapAccumL step stretchPercents $
+        zip (childPaths children currentPath) widgets
+   where
+    stretchPercents =
+      layoutPercents weights
+        [ ()
+        | childPath <- childPaths children currentPath
+        , not (isCollapsed childPath)
         ]
 
-    isCollapsed p st' = not $ st' ^. stIsTriggered (mName $ ElementName p)
+    step percents (childPath, widget)
+      | isCollapsed childPath = (percents, widget)
+      | otherwise =
+          case percents of
+            percent : rest -> (rest, limit percent widget)
+            [] -> ([], widget)
 
   -- Calculate the percentage widths of each child element.
   -- It is always the last child that takes up the remaining space.
-  layoutPercents :: Maybe [Double] -> [a] -> [Int]
   layoutPercents weights children =
     remainingPercents effectiveWeights
    where
@@ -125,7 +164,6 @@ drawElement path element st =
         _ ->
           replicate (length children) 1
 
-  remainingPercents :: [Double] -> [Int]
   remainingPercents = \case
     [] -> []
     [_] -> [100]
@@ -136,22 +174,20 @@ drawElement path element st =
 
   -- Scrollbar is considered as a one-size divider.
   -- So we don't need padding when the element has a scrollbar.
-  hasScrollBar :: LayoutElement -> Bool
   hasScrollBar = \case
     EAlbumList -> True
     ETrackList -> True
     ECurrentQueue -> True
     EEqualizer -> True
+    ESongInfo -> True
     EPlaceholder -> False
     EHBox _ children -> any hasScrollBar children
     EVBox _ children -> any hasScrollBar children
-    ETabs children -> any hasScrollBar children
+    ETabs children ->
+      case currentTabElement path children of
+        Nothing -> False
+        Just (_, element) -> hasScrollBar element
 
-  applyElementSpacing ::
-    (Widget (MName St) -> Widget (MName St)) ->
-    [LayoutElement] ->
-    [Widget (MName St)] ->
-    [Widget (MName St)]
   applyElementSpacing pad elements widgets =
     case zip elements widgets of
       [] -> []
@@ -215,6 +251,56 @@ instance Drawable St CollapsingSwitch where
       True -> unTrigger (mName $ ElementName path)
       False -> trigger (mName $ ElementName path)
 
+instance Drawable St CollapsingSwitch' where
+  draw (CollapsingSwitch' path) st =
+    W.withAttr (attrName "label") . W.str $
+      bool " - " " + " $
+        st ^. stIsTriggered (mName $ ElementName path)
+  parent (CollapsingSwitch' path) =
+    Just . ParentName . mName . ElementName $ path
+  variant (CollapsingSwitch' path) = pathVariant path
+  onMouseLeftUp (CollapsingSwitch' path) = Just $ \_ ->
+    use (stIsTriggered (mName $ ElementName path)) >>= \case
+      True -> unTrigger (mName $ ElementName path)
+      False -> trigger (mName $ ElementName path)
+
+instance Drawable St TabButton where
+  draw (TabButton path) st =
+    withStyle $ W.str (" " <> label <> " ")
+   where
+    label =
+      case st ^. stLayoutElement path of
+        Nothing -> "unknown"
+        Just child ->
+          case displayElementName child of
+            "" -> formatElementName child
+            name -> name
+
+    withStyle =
+      if isCurrentTab
+        then W.withAttr (attrName "label")
+        else W.withAttr (attrName "textOnTabs")
+
+    isCurrentTab =
+      case unsnoc path of
+        Nothing -> False
+        Just (parentPath, childIndex) ->
+          Map.findWithDefault 0 parentPath (st ^. stTabStates) == childIndex
+
+  parent (TabButton path) =
+    case unsnoc path of
+      Nothing -> Nothing
+      Just (parentPath, _) -> Just . ParentName . mName . ElementName $ parentPath
+  variant (TabButton path) = pathVariant path
+  onMouseLeftUp (TabButton path) = Just $ \_ ->
+    case unsnoc path of
+      Nothing -> pure ()
+      Just (parentPath, childIndex) ->
+        stTabStates %= Map.insert parentPath childIndex
+
+{- | Draw the header of a layout element.
+Tabs use the same header as the selected child.
+-}
 drawHeader :: ElementPath -> St -> LayoutElement -> [Widget (MName St)]
 drawHeader path st = \case
   EAlbumList ->
@@ -240,8 +326,37 @@ drawHeader path st = \case
     , W.fill ' '
     , W.padLeft W.Max $ drawNamed st EQSwitch
     ]
+  ESongInfo ->
+    [ drawNamed st $ CollapsingSwitch path
+    , W.fill ' '
+    ]
+  ETabs children ->
+    [ drawNamed st $ CollapsingSwitch' path
+    , drawTabNames children
+    , drawCurrentTabHeader children
+    ]
   _ -> []
  where
+  currentTabIndex =
+    Map.findWithDefault 0 path (st ^. stTabStates)
+
+  drawTabNames children =
+    case childPaths children path of
+      [] -> W.emptyWidget
+      childPaths' ->
+        W.hBox $
+          drawNamed st . TabButton <$> childPaths'
+
+  drawCurrentTabHeader children =
+    case currentTabElement children of
+      Nothing -> W.emptyWidget
+      Just (childPath, child) ->
+        W.hBox $ drop 1 $ drawHeader childPath st child
+
+  currentTabElement children =
+    let childPath = childPaths children path !? currentTabIndex
+     in childPath >>= \p -> (\child -> (p, child)) <$> (st ^. stLayoutElement p)
+
   selectedAlbum = (st ^. stSelectedAlbum) >>= ((st ^. stConfig . csAllAlbums) Vec.!?)
   album = maybe "" albumName selectedAlbum
 
@@ -308,15 +423,6 @@ drawElementScaffold path element st =
 childPaths :: [LayoutElement] -> ElementPath -> [ElementPath]
 childPaths children parent' =
   fmap (\i -> parent' <> [i]) [0 .. length children - 1]
-
-drawAllAlbumList :: St -> Widget (MName St)
-drawAllAlbumList st = drawNamed st AllAlbumList
-
-drawTrackList :: St -> Widget (MName St)
-drawTrackList st = drawNamed st TrackList
-
-drawCurrentQueueList :: St -> Widget (MName St)
-drawCurrentQueueList st = drawNamed st QueueSongList
 
 drawEqualizerPanel :: St -> Widget (MName St)
 drawEqualizerPanel st

@@ -29,6 +29,7 @@ import Data.List (find)
 import Data.Map qualified as Map
 import Data.Maybe (isJust)
 import Data.Text.Zipper qualified as TZ
+import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
 import Graphics.Vty qualified as V
 import Lens.Micro
 import Lens.Micro.Mtl
@@ -168,11 +169,23 @@ handleLeftMouseDown chan name location = do
 handleLeftMouseUp :: BChan Event -> MName St -> B.Location -> EventM (MName St) St ()
 handleLeftMouseUp chan name location = do
   use stPressed >>= \pressed ->
-    when (pressed == Just name) $
+    when (pressed == Just name) $ do
       void $
         dispatchToFirst
           name
           (\case MName a -> ($ location) <$> onMouseLeftUp a)
+      now <- liftIO getCurrentTime
+      use stLastLeftClick >>= \case
+        Just (lastName, lastTime)
+          | lastName == name
+          , diffUTCTime now lastTime <= doubleClickThreshold -> do
+              void $
+                dispatchToFirst
+                  name
+                  (\case MName a -> ($ location) <$> onMouseDoubleClick a)
+              stLastLeftClick .= Nothing
+        _ ->
+          stLastLeftClick .= Just (name, now)
   stSongProgressPreview .= Nothing
   stPressed .= Nothing
   queueMainViewRefresh chan
@@ -228,6 +241,9 @@ whenMainView :: EventM (MName St) St () -> EventM (MName St) St ()
 whenMainView action = do
   currentView <- use stCurrentView
   when (currentView == Just MainView) action
+
+doubleClickThreshold :: NominalDiffTime
+doubleClickThreshold = 0.3
 
 (?.=) :: ASetter' St a -> Maybe a -> EventM (MName St) St ()
 field ?.= maybeValue =

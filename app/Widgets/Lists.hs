@@ -9,6 +9,7 @@ module Widgets.Lists (
   AlbumArtThumb (..),
   QueueSongList (..),
   QueueSongEntry (..),
+  SongInfoList (..),
   EQConfigList (..),
   EQConfigEntry (..),
   MenuEntry (..),
@@ -17,7 +18,11 @@ module Widgets.Lists (
 
 import Brick
 import Brick.Widgets.Core qualified as W
+import Data.Bool (bool)
+import Data.List (intercalate)
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map qualified as Map
+import Data.Time qualified as Time
 import Data.Vector qualified as Vec
 import Lens.Micro
 import Lens.Micro.Mtl
@@ -40,16 +45,13 @@ data QueueSongList = QueueSongList
 
 data QueueSongEntry = QueueSongEntry Int
 
+data SongInfoList = SongInfoList
+
 data EQConfigList = EQConfigList
 
 data EQConfigEntry = EQConfigEntry Int
 
 data MenuEntry = MenuEntry Int
-
-selectedAlbumSongs :: St -> Vec.Vector MPD.Song
-selectedAlbumSongs st =
-  maybe Vec.empty albumSongs $
-    (st ^. stSelectedAlbum) >>= ((st ^. stConfig . csAllAlbums) Vec.!?)
 
 instance Drawable St AllAlbumList where
   draw _ st =
@@ -81,20 +83,21 @@ instance Drawable St TrackList where
       st
       (mName TrackList)
       AlbumSongEntry
-      (selectedAlbumSongs st)
+      (st ^. stSelectedAlbumSongs)
   onMouseScrollUp _ = Just $ scrollViewportBy (mName TrackList) (-1)
   onMouseScrollDown _ = Just $ scrollViewportBy (mName TrackList) 1
   parent _ = Just (ParentView MainView)
 
 instance Drawable St AlbumSongEntry where
   draw (AlbumSongEntry i) st =
-    drawSongRow st AlbumSongEntry i (selectedAlbumSongs st) songTrack
-  onMouseLeftUp (AlbumSongEntry i) = Just $ \_ -> do
-    st <- get
-    sendRequest . MPDOperation . pure $ do
-      let song = selectedAlbumSongs st Vec.! i
-      MPD.add (MPD.sgFilePath song)
+    drawSongRow st AlbumSongEntry i (st ^. stSelectedAlbumSongs) songTrack
+  onMouseDoubleClick (AlbumSongEntry i) = Just $ \_ -> do
+    song <- use stSelectedAlbumSongs <&> (Vec.! i)
+    sendRequest $ MPDOperation [MPD.add (MPD.sgFilePath song)]
     sendRequest SignalCurrentQueue
+  onMouseLeftUp (AlbumSongEntry i) = Just $ \_ -> do
+    song <- use stSelectedAlbumSongs <&> (Vec.! i)
+    stSelectedSong .= Just song
   parent (AlbumSongEntry _) = Just (ParentName (mName TrackList))
   variant (AlbumSongEntry i) = i
 
@@ -128,6 +131,45 @@ instance Drawable St QueueSongEntry where
   onMouseLeftUp (QueueSongEntry i) = Just $ \_ -> do
     stPlaying . psPaused .= False
     sendRequest . MPDOperation . pure $ MPD.play (Just i)
+
+instance Drawable St SongInfoList where
+  draw _ st =
+    viewportWithBar st (mName SongInfoList) . W.vBox $
+      [ header "\nSONG INFO: "
+      , "Disc" <-> (intercalate ", " $ NonEmpty.toList $ meta MPD.Disc)
+      , "Track" <-> (h $ meta MPD.Track)
+      , "Name" <-> (h $ meta MPD.Title)
+      , "Artist" <-> (intercalate ", " $ NonEmpty.toList $ meta MPD.Artist)
+      , "Album" <-> (intercalate ", " $ NonEmpty.toList $ meta MPD.Album)
+      , "Genre" <-> (intercalate "/" $ NonEmpty.toList $ meta MPD.Genre)
+      , "Date" <-> (h $ meta MPD.Date)
+      , "Comment" <-> (h $ meta MPD.Comment)
+      , "Label" <-> (h $ meta MPD.Label)
+      , header "\nFILE INFO: "
+      , "Location" <-> (st ^. stSelectedSong .? to (MPD.toString . MPD.sgFilePath))
+      , "Last Modified" <-> (st ^. stSelectedSong .? to (formatTime . MPD.sgLastModified))
+      , "Length" <-> (st ^. stSelectedSong .? to (formatSecs . MPD.sgLength))
+      ]
+   where
+    h = NonEmpty.head
+    meta m = st ^. stSelectedSongMeta m
+    formatTime = \case
+      Just t -> Time.formatTime Time.defaultTimeLocale "%Y-%m-%d %H:%M:%S" t
+      Nothing -> "Unknown"
+    key <-> value =
+      W.hBox
+        [ W.withAttr (attrName "text") $ W.str "- "
+        , W.hLimit 15 . W.vLimit 1 $
+            W.hBox
+              [ W.withAttr (attrName "header") $ W.str key
+              , W.withAttr (attrName "text") $ W.fill (bool '.' ' ' $ null value)
+              ]
+        , W.strWrap value
+        ]
+    header text = W.withAttr (attrName "text") $ W.str text
+  onMouseScrollUp _ = Just $ scrollViewportBy (mName SongInfoList) (-1)
+  onMouseScrollDown _ = Just $ scrollViewportBy (mName SongInfoList) 1
+  parent _ = Just (ParentView MainView)
 
 instance Drawable St EQConfigList where
   draw n st =

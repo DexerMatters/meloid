@@ -20,6 +20,7 @@ module Types.Model (
   -- St lenses
   stEdits,
   stPressed,
+  stLastLeftClick,
   stSongProgressPreview,
   stLastRightPressed,
   stTriggeredNames,
@@ -32,6 +33,7 @@ module Types.Model (
   stDialogView,
   stSelectedAlbum,
   stSelectedPlaylist,
+  stSelectedSong,
   stConfig,
   stPlaying,
   stLogs,
@@ -68,6 +70,7 @@ import Brick.Widgets.Edit qualified as E
 import Compat.Term (ImageFormat, TermType)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
+import Data.Time.Clock (UTCTime)
 import Data.Vector qualified as Vec
 import Lens.Micro.TH (makeLenses)
 import Network.MPD qualified as MPD
@@ -143,6 +146,7 @@ data St
   = St
   { _stEdits :: EditSt' St
   , _stPressed :: Maybe (MName St)
+  , _stLastLeftClick :: Maybe (MName St, UTCTime)
   , _stSongProgressPreview :: Maybe (Double, Double)
   , _stTriggeredNames :: Set.Set (MName St)
   , _stTabStates :: Map.Map [Int] Int
@@ -155,6 +159,7 @@ data St
   , _stDialogView :: Maybe ViewName
   , _stSelectedAlbum :: Maybe Int
   , _stSelectedPlaylist :: Int
+  , _stSelectedSong :: Maybe MPD.Song
   , _stConfig :: ConfigSt
   , _stPlaying :: PlayingSt
   , _stLogs :: [(LogLevel, String)]
