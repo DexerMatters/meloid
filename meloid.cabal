@@ -40,11 +40,11 @@ executable meloid
     Attrs
     Utils
     Sys
-    Image
     Cmd
     Types
     Types.Identity
     Types.Core
+    Types.Image
     Types.Model
     Types.Schemas
     Types.Helpers
@@ -60,8 +60,8 @@ executable meloid
     Widgets.Controls
     Widgets.Views
     Widgets.Edits
+    Widgets.Image
     Widgets.Visual.EQ
-    Widgets.Visual.Art
     Compat.Image
     Compat.Term
     Compat.Ansi
@@ -106,7 +106,8 @@ executable meloid
     -- Parsers
     aeson,
     yaml,
-    megaparsec
+    megaparsec,
+    scientific
 
   hs-source-dirs:   app
   default-language: GHC2024

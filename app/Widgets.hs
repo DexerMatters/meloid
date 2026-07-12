@@ -6,7 +6,7 @@ module Widgets (
   module Widgets.Controls,
   module Widgets.Views,
   module Widgets.Layer,
-  module Widgets.Visual.Art,
+  module Widgets.Image,
   module Widgets.Visual.EQ,
 )
 where
@@ -14,8 +14,8 @@ where
 import Widgets.Common
 import Widgets.Controls
 import Widgets.Elements
+import Widgets.Image
 import Widgets.Layer
 import Widgets.Lists
 import Widgets.Views
-import Widgets.Visual.Art
 import Widgets.Visual.EQ

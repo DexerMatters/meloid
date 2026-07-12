@@ -9,6 +9,7 @@ module Types.Model (
   DialogSt (..),
   Album (..),
   Playlist (..),
+  SongFileExtraInfo (..),
   ConfigSt (..),
   PlayingSt (..),
   EditSt' (..),
@@ -38,7 +39,7 @@ module Types.Model (
   stPlaying,
   stLogs,
   stChannel,
-  stPicCache,
+  stImageCache,
   stPanic,
   stEnv,
   -- ConfigSt lenses
@@ -76,6 +77,7 @@ import Lens.Micro.TH (makeLenses)
 import Network.MPD qualified as MPD
 import Types.Core
 import Types.Identity (MName, ViewName)
+import Types.Image
 import Types.Schemas
 
 -- | State for a simple text dialog.
@@ -99,6 +101,17 @@ data Album = Album
 data Playlist = Playlist
   { playlistName :: MPD.PlaylistName
   , playlistSongs :: [MPD.Song]
+  }
+
+{- | Song file extra information.
+This needs to maunally be extracted from the file with the
+algorithm written by ourselves.
+-}
+data SongFileExtraInfo = SongFileExtraInfo
+  { songSize :: String
+  , songBitRate :: String
+  , songSampleRate :: String
+  , songChannels :: String
   }
 
 -- | Static and semi-static configuration loaded from MPD.
@@ -159,12 +172,12 @@ data St
   , _stDialogView :: Maybe ViewName
   , _stSelectedAlbum :: Maybe Int
   , _stSelectedPlaylist :: Int
-  , _stSelectedSong :: Maybe MPD.Song
+  , _stSelectedSong :: Maybe (MPD.Song, SongFileExtraInfo)
   , _stConfig :: ConfigSt
   , _stPlaying :: PlayingSt
   , _stLogs :: [(LogLevel, String)]
   , _stChannel :: Maybe (BChan Request)
-  , _stPicCache :: Map.Map AlbumArtKey AlbumArt
+  , _stImageCache :: ImageCache
   , _stPanic :: Bool
   , _stEnv :: Environment
   }

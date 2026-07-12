@@ -7,12 +7,14 @@ module Types (
   module Types.Actions,
   module Types.Logging,
   module Types.Schemas,
+  module Types.Image,
 ) where
 
 import Types.Actions
 import Types.Core
 import Types.Helpers
 import Types.Identity
+import Types.Image
 import Types.Logging
 import Types.Model
 import Types.Schemas

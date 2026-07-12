@@ -9,7 +9,7 @@ module Types.Configs (
   StoredConfigs (..),
   Configs (..),
   EQConfigs (..),
-  albumArtCacheDir,
+  imageCacheDir,
   configDir,
 ) where
 
@@ -131,14 +131,11 @@ instance StoredConfigs EQConfigs where
       True -> pure $ Right file
       False -> pure $ Left ("EQ file not found: " <> file)
 
-{- | Prepare the album art cache directory.
-The directory is responsible for storing album art so that
-we can avoid extracting the same album art multiple times.
--}
-albumArtCacheDir :: IO FilePath
-albumArtCacheDir = do
-  let fallbackDir = "/tmp/meloid/album-art"
-  preferredDir <- getXdgDirectory XdgCache "meloid/album-art"
+-- | Prepare the image cache directory used by every image source.
+imageCacheDir :: IO FilePath
+imageCacheDir = do
+  let fallbackDir = "/tmp/meloid/images"
+  preferredDir <- getXdgDirectory XdgCache "meloid/images"
   (tryEnsure preferredDir :: IO (Either IOException ())) >>= \case
     Right () -> pure preferredDir
     Left _ -> do

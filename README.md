@@ -7,7 +7,8 @@ yet under development.
 
 Prerequisite
 
-1. Make sure you have Magick and Chafa installed on your computer 
+1. Make sure you have Magick and Chafa installed on your computer. They power
+   the generic terminal image pipeline for image files and embedded MPD art.
 2. To persist edits back into `config.yaml` while preserving comments and 
 formatting, install `nodejs`, then run `npm install --prefix tools`. If you use 
 a non-default Node executable, set `MELOID_NODE=/path/to/node`.

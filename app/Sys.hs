@@ -36,6 +36,13 @@ import Prelude hiding (log)
 songProgressInterval :: Int
 songProgressInterval = 200000
 
+-- | Library grouping is a metadata concern, independent of image caching.
+albumGroupKey :: MPD.Song -> (String, String)
+albumGroupKey song =
+  ( NonEmpty.head $ songMeta MPD.Artist song
+  , NonEmpty.head $ songMeta MPD.Album song
+  )
+
 {- | The loop that updates the song progress every
 `songProgressInterval`
 -}
@@ -157,7 +164,7 @@ musicPlayerThread reqChan evChan = do
           let songs = [song | MPD.LsSong song <- all']
               plNames = [playlist | MPD.LsPlaylist playlist <- all']
               dirs = [dir' | MPD.LsDirectory dir' <- all']
-              albums' = groupBy ((==) `on` songAlbumArtKey) $ sortOn songAlbumArtKey songs
+              albums' = groupBy ((==) `on` albumGroupKey) $ sortOn albumGroupKey songs
               albums =
                 albums' <&> \tracks -> case listToMaybe tracks of
                   Just cand ->

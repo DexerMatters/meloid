@@ -6,7 +6,6 @@ module Widgets.Lists (
   AllAlbumEntry (..),
   TrackList (..),
   AlbumSongEntry (..),
-  AlbumArtThumb (..),
   QueueSongList (..),
   QueueSongEntry (..),
   SongInfoList (..),
@@ -17,7 +16,9 @@ module Widgets.Lists (
 ) where
 
 import Brick
+import Brick qualified as B
 import Brick.Widgets.Core qualified as W
+import Compat.Software (extractExtraInfo)
 import Data.Bool (bool)
 import Data.List (intercalate)
 import Data.List.NonEmpty qualified as NonEmpty
@@ -29,7 +30,7 @@ import Lens.Micro.Mtl
 import Network.MPD qualified as MPD
 import Types
 import Widgets.Common
-import Widgets.Visual.Art (lookupAlbumThumbRenderedImage, renderImage)
+import Widgets.Image (AlbumImageClip (..), albumThumbnailSize, drawAlbumThumbnail)
 
 data AllAlbumList = AllAlbumList
 
@@ -38,8 +39,6 @@ data AllAlbumEntry = AllAlbumEntry Int
 data TrackList = TrackList
 
 data AlbumSongEntry = AlbumSongEntry Int
-
-data AlbumArtThumb = AlbumArtThumb Int
 
 data QueueSongList = QueueSongList
 
@@ -53,16 +52,21 @@ data EQConfigEntry = EQConfigEntry Int
 
 data MenuEntry = MenuEntry Int
 
+albumThumbnailHeight :: Int
+albumThumbnailHeight = snd albumThumbnailSize
+
 instance Drawable St AllAlbumList where
   draw _ st =
-    drawAlbumList
-      st
-      (mName AllAlbumList)
-      AllAlbumEntry
-      (drawNamed st . AlbumArtThumb)
-      (st ^. stConfig . csAllAlbums)
-  onMouseScrollUp _ = Just $ scrollViewportBy (mName AllAlbumList) (negate $ snd albumArtThumbSize)
-  onMouseScrollDown _ = Just $ scrollViewportBy (mName AllAlbumList) (snd albumArtThumbSize)
+    B.reportExtent (mName AlbumImageClip) $
+      drawAlbumList
+        st
+        (mName AlbumImageClip)
+        AllAlbumEntry
+        (drawAlbumThumbnail st)
+        albumThumbnailHeight
+        (st ^. stConfig . csAllAlbums)
+  onMouseScrollUp _ = Just $ scrollViewportBy (mName AlbumImageClip) (negate albumThumbnailHeight)
+  onMouseScrollDown _ = Just $ scrollViewportBy (mName AlbumImageClip) albumThumbnailHeight
   parent _ = Just (ParentView MainView)
 
 instance Drawable St AllAlbumEntry where
@@ -97,17 +101,12 @@ instance Drawable St AlbumSongEntry where
     sendRequest SignalCurrentQueue
   onMouseLeftUp (AlbumSongEntry i) = Just $ \_ -> do
     song <- use stSelectedAlbumSongs <&> (Vec.! i)
-    stSelectedSong .= Just song
+    songExInfo <- extractExtraInfo song
+    case songExInfo of
+      Right info -> stSelectedSong .= Just (song, info)
+      Left err -> logReqWarn "ffprobe" err
   parent (AlbumSongEntry _) = Just (ParentName (mName TrackList))
   variant (AlbumSongEntry i) = i
-
-instance Drawable St AlbumArtThumb where
-  draw (AlbumArtThumb i) st =
-    renderImage albumArtThumbSize $
-      lookupAlbumThumbRenderedImage st i albumArtThumbSize
-  willReportExtent _ = True
-  parent (AlbumArtThumb i) = Just (ParentName (mName $ AllAlbumEntry i))
-  variant (AlbumArtThumb i) = i
 
 instance Drawable St QueueSongList where
   draw _ st =
@@ -135,7 +134,7 @@ instance Drawable St QueueSongEntry where
 instance Drawable St SongInfoList where
   draw _ st =
     viewportWithBar st (mName SongInfoList) . W.vBox $
-      [ header "\nSONG INFO: "
+      [ header "MUSIC INFO: "
       , "Disc" <-> (intercalate ", " $ NonEmpty.toList $ meta MPD.Disc)
       , "Track" <-> (h $ meta MPD.Track)
       , "Name" <-> (h $ meta MPD.Title)
@@ -146,9 +145,13 @@ instance Drawable St SongInfoList where
       , "Comment" <-> (h $ meta MPD.Comment)
       , "Label" <-> (h $ meta MPD.Label)
       , header "\nFILE INFO: "
-      , "Location" <-> (st ^. stSelectedSong .? to (MPD.toString . MPD.sgFilePath))
-      , "Last Modified" <-> (st ^. stSelectedSong .? to (formatTime . MPD.sgLastModified))
-      , "Length" <-> (st ^. stSelectedSong .? to (formatSecs . MPD.sgLength))
+      , "Location" <-> (st ^. stSelectedSong .? to (MPD.toString . MPD.sgFilePath . fst))
+      , "Last Modified" <-> (st ^. stSelectedSong .? to (formatTime . MPD.sgLastModified . fst))
+      , "Size" <-> (st ^. stSelectedSong .? to (songSize . snd))
+      , "Length" <-> (st ^. stSelectedSong .? to (formatSecs . MPD.sgLength . fst))
+      , "Bitrate" <-> (st ^. stSelectedSong .? to (songBitRate . snd))
+      , "Sample Rate" <-> (st ^. stSelectedSong .? to (songSampleRate . snd))
+      , "Channels" <-> (st ^. stSelectedSong .? to (songChannels . snd))
       ]
    where
     h = NonEmpty.head

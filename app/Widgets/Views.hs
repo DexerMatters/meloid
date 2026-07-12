@@ -12,7 +12,6 @@ themselves in the context of child widgets.
 -}
 module Widgets.Views (
   DebugViewport (..),
-  lookupRenderedImage,
   drawView,
   drawDialogView,
 ) where
@@ -21,7 +20,6 @@ import Brick
 import Brick.Widgets.Center qualified as C
 import Brick.Widgets.Core qualified as W
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
 import Lens.Micro
 import Network.MPD qualified as MPD
@@ -30,22 +28,9 @@ import Widgets.Common
 import Widgets.Controls
 import Widgets.Edits (CommandEditor (CommandEditor))
 import Widgets.Elements
-import Widgets.Lists
-import Widgets.Visual.Art
+import Widgets.Image (drawPlayingImage)
 
 data DebugViewport = DebugViewport
-
-{- | This function combines the lookup of the playing
-album image and ones in the album list to search for
-an arbitrary rendered image
--}
-lookupRenderedImage :: St -> MName St -> ImageSize -> Maybe RenderedImage
-lookupRenderedImage st name size
-  | Just AlbumArtPlaying <- castMName name =
-      st ^. stCurrentAlbumArt >>= (Map.!? size)
-  | Just (AlbumArtThumb i) <- castMName name =
-      lookupAlbumThumbRenderedImage st i size
-  | otherwise = Nothing
 
 drawView :: ViewName -> St -> Widget (MName St)
 drawView MainView st =
@@ -53,7 +38,7 @@ drawView MainView st =
     [ W.hBox
         [ drawControlPanel st
         , W.padLeft (W.Pad 2) . W.padRight (W.Pad 1) $ drawSongPanel st
-        , drawNamed st AlbumArtPlaying
+        , W.hLimit 6 . W.vLimit 3 $ drawPlayingImage st
         ]
     , W.padTop (W.Pad 1) . W.padBottom W.Max $
         drawNamed st (ElementName [])

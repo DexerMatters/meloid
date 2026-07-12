@@ -51,7 +51,7 @@ main = do
   chan <- newBChan 2048
   -- Request channel (send requests to the MPD backend)
   requestChan <- newBChan 2048
-  -- Image service (the backend for album art)
+  -- Image service (the terminal image backend)
   imageService <- Image.startImageService chan
   void $ forkIO $ Sys.musicPlayerThread requestChan chan
 
@@ -124,7 +124,7 @@ defaultSt =
           }
     , _stLogs = []
     , _stChannel = Nothing
-    , _stPicCache = Map.empty
+    , _stImageCache = Map.empty
     , _stPanic = False
     , _stEnv =
         Environment

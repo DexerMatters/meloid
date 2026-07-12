@@ -122,7 +122,19 @@ drawElement path st = go True path
           , bool W.emptyWidget body (isCollapsed currentPath)
           ]
 
-  isCollapsed p = not $ st ^. stIsTriggered (mName $ ElementName p)
+  isCollapsed p =
+    case st ^. stLayoutElement p of
+      Just element
+        | isCollapsible element ->
+            not $ st ^. stIsTriggered (mName $ ElementName p)
+      _ ->
+        False
+
+  isCollapsible = \case
+    EHBox{} -> False
+    EVBox{} -> False
+    EPlaceholder -> False
+    _ -> True
 
   currentTabIndex currentPath =
     Map.findWithDefault 0 currentPath (st ^. stTabStates)
@@ -131,38 +143,37 @@ drawElement path st = go True path
     let childPath = childPaths children currentPath !? currentTabIndex currentPath
      in childPath >>= \p -> (\element -> (p, element)) <$> (st ^. stLayoutElement p)
 
+  -- Collapsed children keep their natural header size.  We select weights
+  -- only after pairing them with their original children, so a collapsed
+  -- middle or trailing child cannot shift another child's weight.
   fitChildren limit currentPath weights children widgets =
     snd $
-      mapAccumL step stretchPercents $
+      mapAccumL applyPercent activePercents $
         zip (childPaths children currentPath) widgets
    where
-    stretchPercents =
-      layoutPercents weights
-        [ ()
-        | childPath <- childPaths children currentPath
+    childPaths' = childPaths children currentPath
+    activePercents =
+      remainingPercents
+        [ weight
+        | (weight, childPath) <- zip (effectiveWeights weights children) childPaths'
         , not (isCollapsed childPath)
         ]
 
-    step percents (childPath, widget)
+    applyPercent percents (childPath, widget)
       | isCollapsed childPath = (percents, widget)
       | otherwise =
           case percents of
             percent : rest -> (rest, limit percent widget)
             [] -> ([], widget)
 
-  -- Calculate the percentage widths of each child element.
-  -- It is always the last child that takes up the remaining space.
-  layoutPercents weights children =
-    remainingPercents effectiveWeights
-   where
-    effectiveWeights =
-      case weights of
-        Just values
-          | length values == length children
-          , all (> 0) values ->
-              values
-        _ ->
-          replicate (length children) 1
+  effectiveWeights weights children =
+    case weights of
+      Just values
+        | length values == length children
+        , all (> 0) values ->
+            values
+      _ ->
+        replicate (length children) 1
 
   remainingPercents = \case
     [] -> []

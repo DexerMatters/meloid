@@ -33,7 +33,7 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Typeable (Typeable)
 import Data.Vector qualified as Vec
 import Graphics.Vty qualified as V
-import Lens.Micro ((^.))
+import Lens.Micro (to, (^.))
 import Lens.Micro.Mtl
 import Network.MPD qualified as MPD
 import Types
@@ -202,13 +202,15 @@ drawAlbumList ::
   (Int -> a) ->
   -- | Thumbnail (indexed)
   (Int -> Widget (MName St)) ->
+  -- | Row height
+  Int ->
   -- | Albums to display
   Vec.Vector Album ->
   Widget (MName St)
-drawAlbumList st listName entryName thumbWidget albums =
+drawAlbumList st listName entryName thumbWidget rowHeight albums =
   viewportWithBar st listName . W.vBox $
     Vec.toList $
-      Vec.imap (drawAlbumRow st entryName thumbWidget) albums
+      Vec.imap (drawAlbumRow st entryName thumbWidget rowHeight) albums
 
 -- | Draw a list of songs
 drawSongList ::
@@ -252,13 +254,15 @@ drawAlbumRow ::
   (Int -> a) ->
   -- | Thumbnail (indexed)
   (Int -> Widget (MName St)) ->
+  -- | Row height
+  Int ->
   -- | Index in the list
   Int ->
   -- | Album infomation
   Album ->
   Widget (MName St)
-drawAlbumRow st entryName thumbWidget i album =
-  W.vLimit (snd albumArtThumbSize) $
+drawAlbumRow st entryName thumbWidget rowHeight i album =
+  W.vLimit rowHeight $
     withSelectedAttr $
       W.hBox
         [ thumbWidget i
@@ -306,7 +310,8 @@ drawSongRow st entryName i songs orderMapping =
           ]
  where
   withStyle song
-    | st ^. stSelectedSong == Just song = W.withDefAttr (attrName "focused")
+    | st ^. stSelectedSong . to (fmap fst) == Just song =
+        W.withDefAttr (attrName "focused")
     | otherwise = id
 
 drawTrackCell :: Bool -> Widget (MName St)

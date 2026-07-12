@@ -6,21 +6,56 @@ module Utils (
   formatFrequencyLabel,
   formatGainDb,
   formatSecs,
+  formatBytes,
+  formatSampleRate,
+  formatBitrate,
   gainBarThumbY,
   gainBarValue,
   snapToTenths,
   songProgressTarget,
   trimTrailingZeros,
   between,
+  validExtent,
+  containsExtent,
+  intersectsExtent,
 ) where
 
+import Brick (Extent (..), Location (..))
 import Numeric (showFFloat)
+import Text.Printf (printf)
 
 formatSecs :: Integer -> String
 formatSecs totalSecs = show mins ++ ":" ++ ensureTwoDigits secs
  where
   (mins, secs) = totalSecs `divMod` 60
   ensureTwoDigits n = if n < 10 then "0" ++ show n else show n
+
+formatBytes :: (Integral a) => a -> String
+formatBytes value
+  | bytes < 0 = '-' : formatBytes (abs bytes)
+  | bytes < 1024 = show bytes <> " B"
+  | otherwise = render (fromIntegral bytes / 1024 :: Double) units
+ where
+  bytes = toInteger value
+  units = ["KiB", "MiB", "GiB", "TiB", "PiB", "EiB"]
+
+  render amount [] = format amount "EiB"
+  render amount (unit : rest)
+    | amount < 1024 || null rest = format amount unit
+    | otherwise = render (amount / 1024) rest
+
+  format amount unit =
+    trimTrailingZeros (showFFloat (Just precision) amount "") <> " " <> unit
+   where
+    precision
+      | amount < 10 = 1
+      | otherwise = 0
+
+formatSampleRate :: Int -> String
+formatSampleRate sampleRate = printf "%.2fkHz" (fromIntegral sampleRate / 1000 :: Double)
+
+formatBitrate :: Int -> String
+formatBitrate bitrate = printf "%.2fkbps" (fromIntegral bitrate / 1000 :: Double)
 
 ceilingDiv :: Int -> Int -> Int
 ceilingDiv numerator denominator = (numerator + denominator - 1) `div` denominator
@@ -93,3 +128,38 @@ gainBarValue sliderHeight y
 
 between :: Int -> Int -> Int -> Bool
 between a b x = x > min a b && x < max a b
+
+validExtent :: Extent n -> Bool
+validExtent extent =
+  let (w, h) = extentSize extent
+   in w > 0 && h > 0
+
+containsExtent :: Extent n -> Extent n -> Bool
+containsExtent outer inner =
+  left outer <= left inner
+    && top outer <= top inner
+    && right inner <= right outer
+    && bottom inner <= bottom outer
+
+intersectsExtent :: Extent n -> Extent n -> Bool
+intersectsExtent a b =
+  left a < right b
+    && left b < right a
+    && top a < bottom b
+    && top b < bottom a
+
+left :: Extent n -> Int
+left extent =
+  let Location (x, _) = extentUpperLeft extent
+   in x
+
+top :: Extent n -> Int
+top extent =
+  let Location (_, y) = extentUpperLeft extent
+   in y
+
+right :: Extent n -> Int
+right extent = left extent + fst (extentSize extent)
+
+bottom :: Extent n -> Int
+bottom extent = top extent + snd (extentSize extent)
