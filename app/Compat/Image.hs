@@ -13,7 +13,6 @@ module Compat.Image (
   refreshScene,
   clearScene,
   queueRefreshImages,
-  consumeRefreshRequest,
   takeReadyImages,
 ) where
 
@@ -62,6 +61,7 @@ scene.  It intentionally has no knowledge of albums or concrete widgets.
 -}
 data ImageService = ImageService
   { imageServiceRawCacheDir :: FilePath
+  , imageServiceEvents :: BChan Event
   , imageServiceRequests :: TQueue ImageRequest
   , imageServicePendingRender :: TVar (Set.Set ImageCacheKey)
   , imageServiceFailedRender :: TVar (Set.Set ImageCacheKey)
@@ -84,6 +84,7 @@ startImageService evChan = do
   let service =
         ImageService
           { imageServiceRawCacheDir = rawCacheDir
+          , imageServiceEvents = evChan
           , imageServiceRequests = requests
           , imageServicePendingRender = pendingRender
           , imageServiceFailedRender = failedRender
@@ -95,7 +96,7 @@ startImageService evChan = do
   replicateM_ imageLoadWorkerCount $
     void $
       forkIO $
-        imageLoadThread service evChan
+        imageLoadThread service
   pure service
 
 imageLoadWorkerCount :: Int
@@ -119,22 +120,24 @@ wrapVty service vty =
           renderFrame queue (V.outputIface vty) $ do
             V.update vty picture
             V.setMode (V.outputIface vty) V.Mouse True
+            refreshAfterFrame service
     , V.refresh = do
         withMVar (imageRenderOutputLock queue) $ \_ ->
           renderFrame queue (V.outputIface vty) $ do
             V.refresh vty
             V.setMode (V.outputIface vty) V.Mouse True
+            refreshAfterFrame service
     }
  where
   queue = imageServiceRenderQueue service
 
-imageLoadThread :: ImageService -> BChan Event -> IO ()
-imageLoadThread service evChan =
+imageLoadThread :: ImageService -> IO ()
+imageLoadThread service =
   forever $
     atomically (readTQueue $ imageServiceRequests service) >>= \case
       RenderImage key source -> renderRequestedImage key source
  where
-  warn = logEv evChan Warn "Image"
+  warn = logEv (imageServiceEvents service) Warn "Image"
 
   renderRequestedImage key source = do
     result <-
@@ -148,13 +151,13 @@ imageLoadThread service evChan =
           modifyTVar' (imageServiceFailedRender service) (Set.insert key)
         warn $ "Error while rendering image:\n" <> show err
       Right rendered ->
-        publishRenderedImage service evChan key rendered
+        publishRenderedImage service key rendered
 
 {- | Publish completed work in batches so a warm persistent cache cannot flood
 the Brick event loop with one redraw per image.
 -}
-publishRenderedImage :: ImageService -> BChan Event -> ImageCacheKey -> RenderedImage -> IO ()
-publishRenderedImage service evChan key rendered = do
+publishRenderedImage :: ImageService -> ImageCacheKey -> RenderedImage -> IO ()
+publishRenderedImage service key rendered = do
   shouldNotify <-
     atomically $ do
       modifyTVar' (imageServiceReadyImages service) (Map.insert key rendered)
@@ -168,7 +171,7 @@ publishRenderedImage service evChan key rendered = do
     void $
       forkIO $ do
         threadDelay imageUpdateDelay
-        writeBChan evChan ImagesReady
+        writeBChan (imageServiceEvents service) ImagesReady
 
 {- | Build and submit the terminal scene represented by widget declarations.
 A placement is painted only when its complete extent lies inside its clip
@@ -187,34 +190,30 @@ clearScene service = do
   format <- use (stEnv . envImageFormat)
   liftIO $ storeDesiredScene service format Map.empty
 
-{- | Coalesce and throttle geometry changes.  Terminal graphics are expensive
-to move, while Brick can continue scrolling text between image refreshes.
+{- | Mark the image scene dirty. The Vty wrapper dispatches the refresh only
+after the next completed frame, when Brick's extents match the new layout.
 -}
-queueRefreshImages :: ImageService -> BChan Event -> EventM (MName St) St ()
-queueRefreshImages service chan =
+queueRefreshImages :: ImageService -> EventM (MName St) St ()
+queueRefreshImages service =
   liftIO $ do
-    shouldQueue <-
-      atomically $ do
-        queued <- readTVar (imageServiceRefreshQueued service)
-        if queued
-          then pure False
-          else do
-            writeTVar (imageServiceRefreshQueued service) True
-            pure True
-    when shouldQueue $
-      void $
-        forkIO $ do
-          threadDelay imageUpdateDelay
-          writeBChan chan RefreshImages
+    atomically $
+      writeTVar (imageServiceRefreshQueued service) True
+
+-- | Dispatch at most one reconciliation request for the frame that has just
+-- been rendered. Clearing the flag before the event is sent preserves any
+-- new geometry change that occurs while the request is waiting in the queue.
+refreshAfterFrame :: ImageService -> IO ()
+refreshAfterFrame service = do
+  shouldRefresh <-
+    atomically $ do
+      requested <- readTVar (imageServiceRefreshQueued service)
+      writeTVar (imageServiceRefreshQueued service) False
+      pure requested
+  when shouldRefresh $
+    writeBChan (imageServiceEvents service) RefreshImages
 
 imageUpdateDelay :: Int
 imageUpdateDelay = 10000
-
--- | Mark the coalesced request as consumed before refreshing or discarding it.
-consumeRefreshRequest :: ImageService -> EventM (MName St) St ()
-consumeRefreshRequest service =
-  liftIO . atomically $
-    writeTVar (imageServiceRefreshQueued service) False
 
 -- | Drain all completed conversions for one main-thread state update.
 takeReadyImages :: ImageService -> EventM (MName St) St ImageCache

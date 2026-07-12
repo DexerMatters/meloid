@@ -27,7 +27,7 @@ import Types
 import Widgets.Common
 import Widgets.Controls
 import Widgets.Edits (CommandEditor (CommandEditor))
-import Widgets.Elements
+import Widgets.Elements.Element (ElementName (..))
 import Widgets.Image (drawPlayingImage)
 
 data DebugViewport = DebugViewport

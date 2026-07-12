@@ -11,7 +11,6 @@ module Handle (
 ) where
 
 import Brick qualified as B
-import Brick.BChan
 import Brick.Main as M
 import Brick.Types (
   BrickEvent (..),
@@ -40,36 +39,38 @@ import Widgets.Image (imageScene)
 import Widgets.Layer (activeOccluderNames)
 
 -- | The entrance point for handling events
-handleEvent :: BChan Event -> Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St ()
-handleEvent chan imageService ev = do
-  handled <- handleGlobalEvent chan imageService ev
+handleEvent :: Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St ()
+handleEvent imageService ev = do
+  handled <- handleGlobalEvent imageService ev
   unless handled $
     use stMode >>= \case
       CommandMode ->
         zoom (stEdits . esCommand) $ E.handleEditorEvent ev
       _ ->
-        handleEvent' chan imageService ev
+        handleEvent' imageService ev
   -- Geometry can change without a widget-specific mouse handler, for example
   -- when a command opens a dialog. Refresh after the following Brick draw.
   case ev of
     AppEvent _ -> pure ()
-    _ -> queueMainViewRefresh imageService chan
+    _ -> queueMainViewRefresh imageService
 
 {- | The function that handles the local events. This handles
 events defined in the type class `Drawable`
 -}
-handleEvent' :: BChan Event -> Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St ()
-handleEvent' chan imageService = \case
+handleEvent' :: Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St ()
+handleEvent' imageService = \case
   MouseDown name V.BScrollDown modifiers _ ->
-    void $ dispatchToFirst name $
-      if V.MCtrl `elem` modifiers
-        then named onMouseScrollDown'
-        else named onMouseScrollDown
+    void $
+      dispatchToFirst name $
+        if V.MCtrl `elem` modifiers
+          then named onMouseScrollDown'
+          else named onMouseScrollDown
   MouseDown name V.BScrollUp modifiers _ ->
-    void $ dispatchToFirst name $
-      if V.MCtrl `elem` modifiers
-        then named onMouseScrollUp'
-        else named onMouseScrollUp
+    void $
+      dispatchToFirst name $
+        if V.MCtrl `elem` modifiers
+          then named onMouseScrollUp'
+          else named onMouseScrollUp
   MouseDown name V.BLeft _ location ->
     handleLeftMouseDown name location
   MouseUp name (Just V.BLeft) location ->
@@ -77,7 +78,7 @@ handleEvent' chan imageService = \case
   MouseUp name (Just V.BRight) location ->
     handleRightMouseUp name location
   AppEvent appEvent ->
-    handleAppEvent chan imageService appEvent
+    handleAppEvent imageService appEvent
   _ ->
     pure ()
 
@@ -85,17 +86,17 @@ handleEvent' chan imageService = \case
 returns true, it consumes the event without passing it
 to the local or app event handlers
 -}
-handleGlobalEvent :: BChan Event -> Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St Bool
-handleGlobalEvent chan imageService = \case
+handleGlobalEvent :: Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St Bool
+handleGlobalEvent imageService = \case
   -- Ctrl + C to quit
   VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl]) ->
     sendRequest SignalQuit $> True
   -- Trigger when resize
   VtyEvent (V.EvResize _ _) -> do
-    queueMainViewRefresh imageService chan $> True
+    queueMainViewRefresh imageService $> True
   -- Toggle debug view
   VtyEvent (V.EvKey (V.KChar 'd') [V.MCtrl]) -> do
-    toggleDebugView chan imageService $> True
+    toggleDebugView imageService $> True
   -- Toggle modes. See `Mode` for details
   VtyEvent (V.EvKey (V.KChar '`') []) ->
     clearCommandEdit >> switchMode $> True
@@ -112,17 +113,16 @@ handleGlobalEvent chan imageService = \case
     stEdits . esCommand %= E.applyEdit (const (TZ.stringZipper [] Nothing))
 
 -- | The function that handles the app events.
-handleAppEvent :: BChan Event -> Image.ImageService -> Event -> EventM (MName St) St ()
-handleAppEvent chan imageService = \case
+handleAppEvent :: Image.ImageService -> Event -> EventM (MName St) St ()
+handleAppEvent imageService = \case
   -- Log events. Logs are printed to the `DebugViewport`
   Log entry -> do
     when (fst entry == Error) $
-      panic >> switchViewAndSyncImages chan imageService DebugView
+      panic >> switchViewAndSyncImages imageService DebugView
     stLogs %= (entry :)
   -- Refresh images. It is important when images are in a
   -- dynamic widget such like a scrollable viewport
   RefreshImages -> do
-    Image.consumeRefreshRequest imageService
     whenMainView $
       refreshImages imageService
   -- For now, we only get the volume from MPD status
@@ -130,7 +130,7 @@ handleAppEvent chan imageService = \case
     stConfig . csVolume ?.= MPD.stVolume status
   -- Update the current song.
   UpdateSong song ->
-    applyCurrentSong imageService chan song
+    applyCurrentSong imageService song
   -- Update the current time. (How much time elapsed when
   -- the song is playing)
   UpdateTime dur ->
@@ -140,17 +140,17 @@ handleAppEvent chan imageService = \case
   UpdateCurrentQueueState status song songs -> do
     stConfig . csVolume ?.= MPD.stVolume status
     stPlaying . psCurrentQueue .= songs
-    applyCurrentSong imageService chan song
+    applyCurrentSong imageService song
   -- Update the config. The config includes things to be
   -- accquired when the program starts
   UpdateConfig config -> do
     stConfig .= config
-    queueMainViewRefresh imageService chan
+    queueMainViewRefresh imageService
   -- Drain all worker completions in one state update and refresh once.
   ImagesReady -> do
     images <- Image.takeReadyImages imageService
     stImageCache %= Map.union images
-    queueMainViewRefresh imageService chan
+    queueMainViewRefresh imageService
   -- Halt
   Halt ->
     M.halt
@@ -185,6 +185,7 @@ handleLeftMouseUp name location = do
           stLastLeftClick .= Just (name, now)
   stSongProgressPreview .= Nothing
   stPressed .= Nothing
+  stLayoutResize .= Nothing
 
 handleRightMouseUp :: MName St -> B.Location -> EventM (MName St) St ()
 handleRightMouseUp name location = do
@@ -193,36 +194,36 @@ handleRightMouseUp name location = do
     (\case MName a -> ($ location) <$> onMouseRightUp a)
     >>= mapM_ (\target -> stLastRightPressed .= Just target)
 
-applyCurrentSong :: Image.ImageService -> BChan Event -> Maybe MPD.Song -> EventM (MName St) St ()
-applyCurrentSong imageService chan song = do
+applyCurrentSong :: Image.ImageService -> Maybe MPD.Song -> EventM (MName St) St ()
+applyCurrentSong imageService song = do
   stPlaying . psCurrentSong .= song
-  queueMainViewRefresh imageService chan
+  queueMainViewRefresh imageService
 
-toggleDebugView :: BChan Event -> Image.ImageService -> EventM (MName St) St ()
-toggleDebugView chan imageService =
+toggleDebugView :: Image.ImageService -> EventM (MName St) St ()
+toggleDebugView imageService =
   (,) <$> use stCurrentView <*> use stPanic >>= \case
     (Just currentView, False)
       | currentView == DebugView ->
-          use stLastView >>= mapM_ (switchViewAndSyncImages chan imageService)
+          use stLastView >>= mapM_ (switchViewAndSyncImages imageService)
     (Just currentView, True)
       | currentView == DebugView ->
           pure ()
     _ ->
-      switchViewAndSyncImages chan imageService DebugView
+      switchViewAndSyncImages imageService DebugView
 
-queueMainViewRefresh :: Image.ImageService -> BChan Event -> EventM (MName St) St ()
+queueMainViewRefresh :: Image.ImageService -> EventM (MName St) St ()
 queueMainViewRefresh imageService =
-  whenMainView . Image.queueRefreshImages imageService
+  whenMainView $ Image.queueRefreshImages imageService
 
-switchViewAndSyncImages :: BChan Event -> Image.ImageService -> ViewName -> EventM (MName St) St ()
-switchViewAndSyncImages chan imageService nextView = do
+switchViewAndSyncImages :: Image.ImageService -> ViewName -> EventM (MName St) St ()
+switchViewAndSyncImages imageService nextView = do
   previousView <- use stCurrentView
   switchView nextView
   currentView <- use stCurrentView
   when (previousView == Just MainView && currentView /= Just MainView) $
     Image.clearScene imageService
   when (currentView == Just MainView) $
-    Image.queueRefreshImages imageService chan
+    Image.queueRefreshImages imageService
 
 refreshImages :: Image.ImageService -> EventM (MName St) St ()
 refreshImages imageService = do

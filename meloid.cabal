@@ -55,6 +55,10 @@ executable meloid
     Widgets
     Widgets.Common
     Widgets.Elements
+    Widgets.Elements.Common
+    Widgets.Elements.Element
+    Widgets.Elements.Header
+    Widgets.Elements.Scaffold
     Widgets.Layer
     Widgets.Lists
     Widgets.Controls

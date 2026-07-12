@@ -15,6 +15,11 @@ module Utils (
   songProgressTarget,
   trimTrailingZeros,
   between,
+  localToScreen,
+  extentHorizontalBounds,
+  extentVerticalBounds,
+  resizeRatio,
+  weightedSizes,
   validExtent,
   containsExtent,
   intersectsExtent,
@@ -128,6 +133,44 @@ gainBarValue sliderHeight y
 
 between :: Int -> Int -> Int -> Bool
 between a b x = x > min a b && x < max a b
+
+localToScreen :: Extent n -> Location -> Location
+localToScreen extent (Location (x, y)) =
+  Location (left extent + x, top extent + y)
+
+extentHorizontalBounds :: Extent n -> (Int, Int)
+extentHorizontalBounds extent = (left extent, right extent)
+
+extentVerticalBounds :: Extent n -> (Int, Int)
+extentVerticalBounds extent = (top extent, bottom extent)
+
+-- | Convert a divider coordinate into a pair-weight ratio while retaining
+-- one renderable terminal cell for each adjacent child.
+resizeRatio :: Int -> (Int, Int) -> Int -> Double
+resizeRatio activeCells (start, end) coordinate
+  | activeCells <= 1 || spanLength <= 0 = 0.5
+  | otherwise = clampValue minimumShare maximumShare requestedShare
+ where
+  spanLength = end - start
+  requestedShare = fromIntegral (coordinate - start) / fromIntegral spanLength
+  minimumShare = 1 / fromIntegral activeCells
+  maximumShare = 1 - minimumShare
+
+-- | Split a fixed number of cells among positive weights. Every cell is
+-- assigned exactly once, and every child gets one cell when capacity permits.
+weightedSizes :: Int -> [Double] -> [Int]
+weightedSizes total weights
+  | capacity >= length weights = fmap (+ 1) $ distribute (capacity - length weights) weights
+  | otherwise = distribute capacity weights
+ where
+  capacity = max 0 total
+
+  distribute _ [] = []
+  distribute remaining [_] = [remaining]
+  distribute remaining (weight : rest) =
+    let exact = fromIntegral remaining * weight / sum (weight : rest)
+        size = min remaining . floor $ exact + 1e-9
+     in size : distribute (remaining - size) rest
 
 validExtent :: Extent n -> Bool
 validExtent extent =

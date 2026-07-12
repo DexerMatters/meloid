@@ -40,6 +40,7 @@ module Types.Model (
   stLogs,
   stChannel,
   stImageCache,
+  stLayoutResize,
   stPanic,
   stEnv,
   -- ConfigSt lenses
@@ -178,6 +179,7 @@ data St
   , _stLogs :: [(LogLevel, String)]
   , _stChannel :: Maybe (BChan Request)
   , _stImageCache :: ImageCache
+  , _stLayoutResize :: Maybe ([Int], Int)
   , _stPanic :: Bool
   , _stEnv :: Environment
   }

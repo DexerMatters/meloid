@@ -35,14 +35,14 @@ drawUI :: St -> [Widget (MName St)]
 drawUI st =
   map (drawMName st) (Names.activeLayerNames st)
 
-app :: BChan Event -> Image.ImageService -> B.AttrMap -> M.App St Event (MName St)
-app chan imageService attrMap =
+app :: Image.ImageService -> B.AttrMap -> M.App St Event (MName St)
+app imageService attrMap =
   M.App
     { M.appDraw = drawUI
     , M.appStartEvent = handleStartEvent
     , M.appChooseCursor = M.showFirstCursor
     , M.appAttrMap = const attrMap
-    , M.appHandleEvent = handleEvent chan imageService
+    , M.appHandleEvent = handleEvent imageService
     }
 
 main :: IO ()
@@ -72,7 +72,7 @@ main = do
       vty
       mkVty
       (Just chan)
-      (app chan imageService (T.themeToAttrMap defaultTheme))
+      (app imageService (T.themeToAttrMap defaultTheme))
       st
   return ()
 
@@ -125,6 +125,7 @@ defaultSt =
     , _stLogs = []
     , _stChannel = Nothing
     , _stImageCache = Map.empty
+    , _stLayoutResize = Nothing
     , _stPanic = False
     , _stEnv =
         Environment
