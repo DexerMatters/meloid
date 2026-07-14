@@ -75,8 +75,11 @@ module Types.Model (
   -- MenuSt lenses
   msWidgets,
   msLocation,
+  msOffset,
+  msSize,
 ) where
 
+import Brick (Location)
 import Brick.BChan (BChan)
 import Brick.Types (EventM, Extent)
 import Brick.Widgets.Edit qualified as E
@@ -188,6 +191,8 @@ An empty widget list means that no menu is open.
 data MenuSt = MenuSt
   { _msWidgets :: [MenuWidget]
   , _msLocation :: MName St
+  , _msOffset :: Location
+  , _msSize :: (Int, Int)
   }
 
 -- | The full application state.

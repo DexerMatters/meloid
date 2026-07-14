@@ -16,14 +16,18 @@ module Types.Actions (
   trigger,
   unTrigger,
   openMenu,
+  repositionMenu,
   closeMenu,
 ) where
 
+import Brick (Extent (..), Location (..))
 import Brick.BChan (writeBChan)
+import Brick.Main qualified as M
 import Brick.Types (EventM)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Set qualified as Set
+import Graphics.Vty qualified as V
 import Lens.Micro (to)
 import Lens.Micro.Mtl
 import Types.Core
@@ -88,10 +92,36 @@ unTrigger name = stTriggeredNames %= Set.delete name
 
 -- | Opens a menu relative to a stable widget name.
 openMenu :: MName St -> [MenuWidget] -> EventM (MName St) St ()
-openMenu location widgets = stMenu .= MenuSt widgets location
+openMenu location widgets = do
+  vty <- M.getVtyHandle
+  windowSize <- liftIO $ V.displayBounds (V.outputIface vty)
+  let size = menuSize windowSize
+  offset <-
+    M.lookupExtent location >>= \case
+      Nothing -> pure $ Location (0, 0)
+      Just extent -> pure $ menuOffset extent windowSize size
+  stMenu .= MenuSt widgets location offset size
+ where
+  menuSize (windowWidth, windowHeight) =
+    ( max 1 $ min 18 windowWidth
+    , max 1 $ min (length widgets + 2) windowHeight
+    )
+  menuOffset extent (windowWidth, windowHeight) (menuWidth, menuHeight) =
+    Location
+      ( max (-anchorX) $ min 0 (windowWidth - menuWidth - anchorX)
+      , max (-anchorY) $ min 0 (windowHeight - menuHeight - anchorY)
+      )
+   where
+    Location (anchorX, anchorY) = extentUpperLeft extent
+
+-- | Recalculate an open menu after terminal geometry changes.
+repositionMenu :: EventM (MName St) St ()
+repositionMenu = do
+  MenuSt widgets location _ _ <- use stMenu
+  unless (null widgets) $ openMenu location widgets
 
 -- | Closes the currently open menu
 closeMenu :: EventM (MName St) St ()
 closeMenu = do
   isOpenned <- use (stMenu . msWidgets . to (not . null))
-  when isOpenned $ stMenu .= MenuSt [] placeholderName
+  when isOpenned $ stMenu .= MenuSt [] placeholderName (Location (0, 0)) (0, 0)

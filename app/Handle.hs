@@ -111,6 +111,7 @@ handleGlobalEvent imageService = \case
     handleQuitShortcut $> True
   -- Trigger when resize
   VtyEvent (V.EvResize _ _) -> do
+    repositionMenu
     queueMainViewRefresh imageService $> True
   -- Toggle debug view
   VtyEvent (V.EvKey (V.KChar 'd') [V.MCtrl]) -> do

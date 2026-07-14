@@ -211,11 +211,11 @@ instance Drawable St EQConfigEntry where
 drawMenuLayer :: St -> Widget (MName St)
 drawMenuLayer st
   | null widgets = W.emptyWidget
-  | otherwise = W.relativeTo location (Location (0, 0)) menu
+  | otherwise = W.relativeTo location offset menu
  where
-  MenuSt widgets location = st ^. stMenu
+  MenuSt widgets location offset (menuWidth, menuHeight) = st ^. stMenu
   menu =
-    W.hLimit 18 . Bd.border $
+    W.hLimit menuWidth . W.padRight W.Max . W.vLimit menuHeight . Bd.border $
       W.vBox $
         map (drawNamed st . MenuEntry) [0 .. length widgets - 1]
 
