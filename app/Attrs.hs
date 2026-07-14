@@ -8,7 +8,9 @@ themes from files, which is provided by Brick.
 -}
 module Attrs (
   ColorMode (..),
+  accent,
   defaultTheme,
+  primary,
 ) where
 
 import Brick
@@ -46,8 +48,8 @@ defaultTheme :: T.Theme
 defaultTheme =
   T.newTheme
     (fg primary)
-    [ (a "button", currentAttr `withForeColor` primary `withStyle` underline)
-    , (a "iconButton", currentAttr `withForeColor` primary `withStyle` bold)
+    [ (a "button", defAttr `withForeColor` primary `withStyle` underline)
+    , (a "iconButton", defAttr `withForeColor` primary `withStyle` bold)
     , (a "button" <> a "pressed", black `on` primary)
     , (a "iconButton" <> a "pressed", black `on` accent)
     , (a "focused", white `on` secondary)
@@ -56,11 +58,18 @@ defaultTheme =
     , (a "label", black `on` accent)
     , (a "bottomLabel", (black `on` accent) `withStyle` bold)
     , (a "meta", currentAttr `withForeColor` accent `withStyle` italic)
-    , (a "text", currentAttr `withForeColor` accent)
+    , (a "text", defAttr `withForeColor` accent)
+    , (a "textOnTabs", defAttr `withForeColor` accent `withStyle` underline)
     , (a "scrollBarThumb", currentAttr `withForeColor` accent `withStyle` bold)
     , (a "scrollBarTrack", currentAttr)
     , (a "progressBarIncomplete", black `on` secondary)
     , (a "progressBarComplete", primary `on` secondary)
+    , -- Equalizer
+      (a "eqDefault", currentAttr)
+    , (a "eqMuted", fg brightBlack)
+    , (a "eqAccent", currentAttr `withForeColor` accent)
+    , (a "eqAccentBold", currentAttr `withForeColor` accent `withStyle` bold)
+    , (a "eqPrimaryBold", currentAttr `withForeColor` primary `withStyle` bold)
     , -- Log
       (a "debugLog", fg $ brightBlack)
     , (a "infoLog", fg $ white)

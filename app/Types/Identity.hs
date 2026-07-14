@@ -15,6 +15,7 @@ module Types.Identity (
   Drawable (..),
   NameKey,
   ViewName (..),
+  placeholderName,
   mName,
   drawMName,
   drawNamed,
@@ -25,6 +26,7 @@ module Types.Identity (
 
 import Brick qualified as B
 import Brick.Types (EventM, Location, Widget)
+import Data.Maybe (isJust)
 import Data.Proxy (Proxy (Proxy))
 import Data.Typeable (Typeable, cast)
 import Type.Reflection (SomeTypeRep, someTypeRep)
@@ -33,7 +35,6 @@ data MName st where
   MName :: (Typeable a, Drawable st a) => a -> MName st
 
 {- | A parent relationship for a named widget.
-
 Widget ancestry can point to either another widget or a view root.
 -}
 data ParentRef st
@@ -48,39 +49,36 @@ class (Typeable a) => Drawable st a | a -> st where
   draw :: a -> st -> Widget (MName st)
   willReportExtent :: a -> Bool
   willReportExtent _ = False
-  handlesMouseLeftDown :: a -> Bool
-  handlesMouseLeftDown _ = False
-  handlesMouseLeftUp :: a -> Bool
-  handlesMouseLeftUp _ = False
-  handlesMouseRightUp :: a -> Bool
-  handlesMouseRightUp _ = False
-  handlesMouseScrollUp :: a -> Bool
-  handlesMouseScrollUp _ = False
-  handlesMouseScrollDown :: a -> Bool
-  handlesMouseScrollDown _ = False
   layerSurface :: a -> Maybe (MName st)
   layerSurface _ = Nothing
-  isClickable :: a -> Bool
-  isClickable a =
-    handlesMouseLeftDown a
-      || handlesMouseLeftUp a
-      || handlesMouseRightUp a
-      || handlesMouseScrollUp a
-      || handlesMouseScrollDown a
-  onMouseLeftDown :: a -> Location -> EventM (MName st) st ()
-  onMouseLeftDown _ _ = pure ()
-  onMouseLeftUp :: a -> Location -> EventM (MName st) st ()
-  onMouseLeftUp _ _ = pure ()
-  onMouseRightUp :: a -> Location -> EventM (MName st) st ()
-  onMouseRightUp _ _ = pure ()
-  onMouseScrollUp :: a -> EventM (MName st) st ()
-  onMouseScrollUp _ = pure ()
-  onMouseScrollDown :: a -> EventM (MName st) st ()
-  onMouseScrollDown _ = pure ()
+  onMouseLeftDown :: a -> Maybe (Location -> EventM (MName st) st ())
+  onMouseLeftDown _ = Nothing
+  onMouseLeftUp :: a -> Maybe (Location -> EventM (MName st) st ())
+  onMouseLeftUp _ = Nothing
+  onMouseDoubleClick :: a -> Maybe (Location -> EventM (MName st) st ())
+  onMouseDoubleClick _ = Nothing
+  onMouseRightUp :: a -> Maybe (Location -> EventM (MName st) st ())
+  onMouseRightUp _ = Nothing
+  onMouseScrollUp :: a -> Maybe (EventM (MName st) st ())
+  onMouseScrollUp _ = Nothing
+  onMouseScrollDown :: a -> Maybe (EventM (MName st) st ())
+  onMouseScrollDown _ = Nothing
+  onMouseScrollUp' :: a -> Maybe (EventM (MName st) st ())
+  onMouseScrollUp' _ = Nothing
+  onMouseScrollDown' :: a -> Maybe (EventM (MName st) st ())
+  onMouseScrollDown' _ = Nothing
   parent :: a -> Maybe (ParentRef st)
   parent _ = Nothing
   variant :: a -> Int
   variant _ = 0
+
+data PlaceholderName st = PlaceholderName
+
+instance (Typeable st) => Drawable st (PlaceholderName st) where
+  draw _ _ = B.emptyWidget
+
+placeholderName :: forall st. (Typeable st) => MName st
+placeholderName = mName (PlaceholderName @st)
 
 {- | A stable comparison key for widget identity.
 The key uses the concrete widget type, its variant, and
@@ -142,8 +140,19 @@ castMName (MName a) = cast a
 
 eval :: MName st -> st -> Widget (MName st)
 eval name@(MName a) st =
-  (if isClickable a then B.clickable name else id)
+  (if hasMouseHandler a then B.clickable name else id)
     ((if willReportExtent a then B.reportExtent name else id) (draw a st))
+
+hasMouseHandler :: (Drawable st a) => a -> Bool
+hasMouseHandler a =
+  isJust (onMouseLeftDown a)
+    || isJust (onMouseLeftUp a)
+    || isJust (onMouseDoubleClick a)
+    || isJust (onMouseRightUp a)
+    || isJust (onMouseScrollUp a)
+    || isJust (onMouseScrollDown a)
+    || isJust (onMouseScrollUp' a)
+    || isJust (onMouseScrollDown' a)
 
 -- | Draw an already existential widget name.
 drawMName :: st -> MName st -> Widget (MName st)

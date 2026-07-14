@@ -11,7 +11,6 @@ module Handle (
 ) where
 
 import Brick qualified as B
-import Brick.BChan
 import Brick.Main as M
 import Brick.Types (
   BrickEvent (..),
@@ -23,45 +22,68 @@ import Compat.Image qualified as Image
 import Compat.Term qualified as Term
 import Control.Monad (unless, void, when)
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.State (get)
 import Data.Foldable (for_)
 import Data.Functor (($>))
 import Data.List (find)
 import Data.Map qualified as Map
+import Data.Maybe (isJust)
 import Data.Text.Zipper qualified as TZ
+import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
 import Graphics.Vty qualified as V
 import Lens.Micro
 import Lens.Micro.Mtl
 import Network.MPD qualified as MPD
 import Types
+import Widgets.Image (imageScene)
+import Widgets.Layer (activeOccluderNames)
+import Widgets.Lists (MenuEntry (..))
 
 -- | The entrance point for handling events
-handleEvent :: BChan Event -> Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St ()
-handleEvent chan imageService ev = do
-  handled <- handleGlobalEvent chan imageService ev
+handleEvent :: Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St ()
+handleEvent imageService ev = do
+  handled <- handleGlobalEvent imageService ev
   unless handled $
     use stMode >>= \case
       CommandMode ->
         zoom (stEdits . esCommand) $ E.handleEditorEvent ev
       _ ->
-        handleEvent' chan imageService ev
+        handleEvent' imageService ev
+  -- Geometry can change without a widget-specific mouse handler, for example
+  -- when a command opens a dialog. Refresh after the following Brick draw.
+  case ev of
+    AppEvent _ -> pure ()
+    _ -> queueMainViewRefresh imageService
 
 {- | The function that handles the local events. This handles
 events defined in the type class `Drawable`
 -}
-handleEvent' :: BChan Event -> Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St ()
-handleEvent' chan imageService = \case
-  MouseDown name V.BScrollDown _ _ ->
-    handleScrollMouse chan name (named handlesMouseScrollDown) (named onMouseScrollDown)
-  MouseDown name V.BScrollUp _ _ ->
-    handleScrollMouse chan name (named handlesMouseScrollUp) (named onMouseScrollUp)
+handleEvent' :: Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St ()
+handleEvent' imageService = \case
+  MouseDown name V.BScrollDown modifiers _ ->
+    dismissMenuOutside name >>= \dismissed ->
+      unless dismissed . void $
+        dispatchToFirst name $
+          if V.MCtrl `elem` modifiers
+            then named onMouseScrollDown'
+            else named onMouseScrollDown
+  MouseDown name V.BScrollUp modifiers _ ->
+    dismissMenuOutside name >>= \dismissed ->
+      unless dismissed . void $
+        dispatchToFirst name $
+          if V.MCtrl `elem` modifiers
+            then named onMouseScrollUp'
+            else named onMouseScrollUp
   MouseDown name V.BLeft _ location ->
-    handleLeftMouseDown chan name location
+    dismissMenuOutside name >>= \dismissed ->
+      unless dismissed $ handleLeftMouseDown name location
   MouseUp name (Just V.BLeft) location ->
-    handleLeftMouseUp chan name location
+    handleLeftMouseUp name location
   MouseUp name (Just V.BRight) location ->
-    handleRightMouseUp chan name location
+    dismissMenuOutside name >>= \dismissed ->
+      unless dismissed $ handleRightMouseUp name location
   AppEvent appEvent ->
-    handleAppEvent chan imageService appEvent
+    handleAppEvent imageService appEvent
   _ ->
     pure ()
 
@@ -69,51 +91,75 @@ handleEvent' chan imageService = \case
 returns true, it consumes the event without passing it
 to the local or app event handlers
 -}
-handleGlobalEvent :: BChan Event -> Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St Bool
-handleGlobalEvent chan imageService = \case
+handleGlobalEvent :: Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St Bool
+handleGlobalEvent imageService = \case
+  -- Blank cells in a relative popup remain raw Vty mouse events.
+  VtyEvent V.EvMouseDown{} -> dismissOpenMenu
   -- Ctrl + C to quit
   VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl]) ->
-    sendRequest SignalQuit $> True
+    handleQuitShortcut $> True
   -- Trigger when resize
   VtyEvent (V.EvResize _ _) -> do
-    queueMainViewRefresh chan $> True
+    queueMainViewRefresh imageService $> True
   -- Toggle debug view
   VtyEvent (V.EvKey (V.KChar 'd') [V.MCtrl]) -> do
-    toggleDebugView chan imageService $> True
+    closeMenu >> toggleDebugView imageService $> True
   -- Toggle modes. See `Mode` for details
   VtyEvent (V.EvKey (V.KChar '`') []) ->
-    clearCommandEdit >> switchMode $> True
+    closeMenu >> clearCommandEdit >> switchMode $> True
   -- Submit command
   VtyEvent (V.EvKey V.KEnter []) ->
     submitCommandEdit >> clearCommandEdit $> True
   _ ->
     pure False
  where
+  handleQuitShortcut = do
+    isPanicked <- use stPanic
+    if isPanicked
+      then M.halt
+      else sendRequest SignalQuit
+
   submitCommandEdit =
     use (stEdits . esCommand . to (TZ.currentLine . E.editContents)) >>= execCmd
 
   clearCommandEdit =
     stEdits . esCommand %= E.applyEdit (const (TZ.stringZipper [] Nothing))
 
+{- | Close an open menu for a pointer event outside the popup and consume that
+event so it cannot also activate the underlying widget.
+-}
+dismissMenuOutside :: MName St -> EventM (MName St) St Bool
+dismissMenuOutside name
+  | isJust (castMName name :: Maybe MenuEntry) = pure False
+  | otherwise = dismissOpenMenu
+
+-- | Close the menu if present and report whether the event was consumed.
+dismissOpenMenu :: EventM (MName St) St Bool
+dismissOpenMenu = do
+  isOpen <- use (stMenu . msWidgets . to (not . null))
+  if isOpen
+    then closeMenu $> True
+    else pure False
+
 -- | The function that handles the app events.
-handleAppEvent :: BChan Event -> Image.ImageService -> Event -> EventM (MName St) St ()
-handleAppEvent chan imageService = \case
+handleAppEvent :: Image.ImageService -> Event -> EventM (MName St) St ()
+handleAppEvent imageService = \case
   -- Log events. Logs are printed to the `DebugViewport`
   Log entry -> do
     when (fst entry == Error) $
-      panic >> switchViewAndSyncImages chan imageService DebugView
+      panic >> switchViewAndSyncImages imageService DebugView
     stLogs %= (entry :)
   -- Refresh images. It is important when images are in a
   -- dynamic widget such like a scrollable viewport
-  RefreshImages ->
+  RefreshImages -> do
     whenMainView $
-      Image.refreshScene imageService
+      refreshImages imageService
   -- For now, we only get the volume from MPD status
   UpdateStatus status ->
     stConfig . csVolume ?.= MPD.stVolume status
   -- Update the current song.
   UpdateSong song ->
-    applyCurrentSong chan song
+    applyCurrentSong imageService song
   -- Update the current time. (How much time elapsed when
   -- the song is playing)
   UpdateTime dur ->
@@ -123,109 +169,113 @@ handleAppEvent chan imageService = \case
   UpdateCurrentQueueState status song songs -> do
     stConfig . csVolume ?.= MPD.stVolume status
     stPlaying . psCurrentQueue .= songs
-    applyCurrentSong chan song
+    applyCurrentSong imageService song
   -- Update the config. The config includes things to be
   -- accquired when the program starts
   UpdateConfig config -> do
     stConfig .= config
-    Image.prefetchAlbumArtCatalog imageService (config ^. csAllAlbums)
-    queueMainViewRefresh chan
-  -- Load album art. The render thread tells the handler
-  -- that the image is ready to be displayed
-  LoadAlbumArt (key, art) -> do
-    stPicCache %= Map.insertWith (flip Map.union) key art
-    whenMainView $
-      Image.refreshScene imageService
+    queueMainViewRefresh imageService
+  -- Drain all worker completions in one state update and refresh once.
+  ImagesReady -> do
+    images <- Image.takeReadyImages imageService
+    stImageCache %= Map.union images
+    queueMainViewRefresh imageService
   -- Halt
   Halt ->
     M.halt
 
-handleScrollMouse ::
-  BChan Event ->
-  MName St ->
-  (MName St -> Bool) ->
-  (MName St -> EventM (MName St) St ()) ->
-  EventM (MName St) St ()
-handleScrollMouse chan name supports action = do
-  void $ dispatchToFirst name supports action
-  queueMainViewRefresh chan
-
-handleLeftMouseDown :: BChan Event -> MName St -> B.Location -> EventM (MName St) St ()
-handleLeftMouseDown chan name location = do
+handleLeftMouseDown :: MName St -> B.Location -> EventM (MName St) St ()
+handleLeftMouseDown name location = do
   stPressed .= Just name
   void $
     dispatchToFirst
       name
-      (named handlesMouseLeftDown)
-      (\case MName a -> onMouseLeftDown a location)
-  queueMainViewRefresh chan
+      (\case MName a -> ($ location) <$> onMouseLeftDown a)
 
-handleLeftMouseUp :: BChan Event -> MName St -> B.Location -> EventM (MName St) St ()
-handleLeftMouseUp chan name location = do
+handleLeftMouseUp :: MName St -> B.Location -> EventM (MName St) St ()
+handleLeftMouseUp name location = do
   use stPressed >>= \pressed ->
-    when (pressed == Just name) $
+    when (pressed == Just name) $ do
       void $
         dispatchToFirst
           name
-          (named handlesMouseLeftUp)
-          (\case MName a -> onMouseLeftUp a location)
+          (\case MName a -> ($ location) <$> onMouseLeftUp a)
+      now <- liftIO getCurrentTime
+      use stLastLeftClick >>= \case
+        Just (lastName, lastTime)
+          | lastName == name
+          , diffUTCTime now lastTime <= doubleClickThreshold -> do
+              void $
+                dispatchToFirst
+                  name
+                  (\case MName a -> ($ location) <$> onMouseDoubleClick a)
+              stLastLeftClick .= Nothing
+        _ ->
+          stLastLeftClick .= Just (name, now)
   stSongProgressPreview .= Nothing
   stPressed .= Nothing
-  queueMainViewRefresh chan
+  stLayoutResize .= Nothing
 
-handleRightMouseUp :: BChan Event -> MName St -> B.Location -> EventM (MName St) St ()
-handleRightMouseUp chan name location = do
+handleRightMouseUp :: MName St -> B.Location -> EventM (MName St) St ()
+handleRightMouseUp name location = do
   dispatchToFirst
     name
-    (\case MName a -> handlesMouseRightUp a)
-    (\case MName a -> onMouseRightUp a location)
+    (\case MName a -> ($ location) <$> onMouseRightUp a)
     >>= mapM_ (\target -> stLastRightPressed .= Just target)
-  queueMainViewRefresh chan
 
-applyCurrentSong :: BChan Event -> Maybe MPD.Song -> EventM (MName St) St ()
-applyCurrentSong chan song = do
+applyCurrentSong :: Image.ImageService -> Maybe MPD.Song -> EventM (MName St) St ()
+applyCurrentSong imageService song = do
   stPlaying . psCurrentSong .= song
-  queueMainViewRefresh chan
+  queueMainViewRefresh imageService
 
-toggleDebugView :: BChan Event -> Image.ImageService -> EventM (MName St) St ()
-toggleDebugView chan imageService =
+toggleDebugView :: Image.ImageService -> EventM (MName St) St ()
+toggleDebugView imageService =
   (,) <$> use stCurrentView <*> use stPanic >>= \case
     (Just currentView, False)
       | currentView == DebugView ->
-          use stLastView >>= mapM_ (switchViewAndSyncImages chan imageService)
+          use stLastView >>= mapM_ (switchViewAndSyncImages imageService)
     (Just currentView, True)
       | currentView == DebugView ->
           pure ()
     _ ->
-      switchViewAndSyncImages chan imageService DebugView
+      switchViewAndSyncImages imageService DebugView
 
-queueMainViewRefresh :: BChan Event -> EventM (MName St) St ()
-queueMainViewRefresh = whenMainView . Image.queueRefreshImages
+queueMainViewRefresh :: Image.ImageService -> EventM (MName St) St ()
+queueMainViewRefresh imageService =
+  whenMainView $ Image.queueRefreshImages imageService
 
-switchViewAndSyncImages :: BChan Event -> Image.ImageService -> ViewName -> EventM (MName St) St ()
-switchViewAndSyncImages chan imageService nextView = do
+switchViewAndSyncImages :: Image.ImageService -> ViewName -> EventM (MName St) St ()
+switchViewAndSyncImages imageService nextView = do
   previousView <- use stCurrentView
   switchView nextView
   currentView <- use stCurrentView
   when (previousView == Just MainView && currentView /= Just MainView) $
     Image.clearScene imageService
   when (currentView == Just MainView) $
-    Image.queueRefreshImages chan
+    Image.queueRefreshImages imageService
+
+refreshImages :: Image.ImageService -> EventM (MName St) St ()
+refreshImages imageService = do
+  st <- get
+  scene <- imageScene st
+  Image.refreshScene imageService scene (activeOccluderNames st)
 
 dispatchToFirst ::
   MName St ->
-  (MName St -> Bool) ->
-  (MName St -> EventM (MName St) St ()) ->
+  (MName St -> Maybe (EventM (MName St) St ())) ->
   EventM (MName St) St (Maybe (MName St))
-dispatchToFirst name supports action = do
-  let target = find supports (nameAncestry name)
-  maybe (pure ()) action target
+dispatchToFirst name handler = do
+  let target = find (isJust . handler) (nameAncestry name)
+  maybe (pure ()) id (target >>= handler)
   pure target
 
 whenMainView :: EventM (MName St) St () -> EventM (MName St) St ()
 whenMainView action = do
   currentView <- use stCurrentView
   when (currentView == Just MainView) action
+
+doubleClickThreshold :: NominalDiffTime
+doubleClickThreshold = 0.3
 
 (?.=) :: ASetter' St a -> Maybe a -> EventM (MName St) St ()
 field ?.= maybeValue =

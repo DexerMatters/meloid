@@ -9,10 +9,13 @@ module Types.Model (
   DialogSt (..),
   Album (..),
   Playlist (..),
+  SongFileExtraInfo (..),
   ConfigSt (..),
   PlayingSt (..),
   EditSt' (..),
   Environment (..),
+  MenuSt (..),
+  MenuWidget (..),
   St (..),
   Event,
   EditSt,
@@ -20,8 +23,11 @@ module Types.Model (
   -- St lenses
   stEdits,
   stPressed,
+  stLastLeftClick,
   stSongProgressPreview,
   stLastRightPressed,
+  stTriggeredNames,
+  stTabStates,
   stCurrentView,
   stLastView,
   stDialog,
@@ -30,11 +36,13 @@ module Types.Model (
   stDialogView,
   stSelectedAlbum,
   stSelectedPlaylist,
+  stSelectedSong,
   stConfig,
   stPlaying,
   stLogs,
   stChannel,
-  stPicCache,
+  stImageCache,
+  stLayoutResize,
   stPanic,
   stEnv,
   -- ConfigSt lenses
@@ -44,6 +52,7 @@ module Types.Model (
   csAllDirs,
   csAllAlbums,
   csConfigs,
+  csEQConfigs,
   -- PlayingSt lenses
   psCurrentSong,
   psCurrentTime,
@@ -57,6 +66,9 @@ module Types.Model (
   -- Dialog lenses
   dsText,
   dsPage,
+  -- MenuSt lenses
+  msWidgets,
+  msLocation,
 ) where
 
 import Brick.BChan (BChan)
@@ -64,11 +76,14 @@ import Brick.Types (EventM, Extent)
 import Brick.Widgets.Edit qualified as E
 import Compat.Term (ImageFormat, TermType)
 import Data.Map qualified as Map
+import Data.Set qualified as Set
+import Data.Time.Clock (UTCTime)
 import Data.Vector qualified as Vec
 import Lens.Micro.TH (makeLenses)
 import Network.MPD qualified as MPD
 import Types.Core
 import Types.Identity (MName, ViewName)
+import Types.Image
 import Types.Schemas
 
 -- | State for a simple text dialog.
@@ -94,6 +109,17 @@ data Playlist = Playlist
   , playlistSongs :: [MPD.Song]
   }
 
+{- | Song file extra information.
+This needs to maunally be extracted from the file with the
+algorithm written by ourselves.
+-}
+data SongFileExtraInfo = SongFileExtraInfo
+  { songSize :: String
+  , songBitRate :: String
+  , songSampleRate :: String
+  , songChannels :: String
+  }
+
 -- | Static and semi-static configuration loaded from MPD.
 data ConfigSt = ConfigSt
   { _csVolume :: MPD.Volume
@@ -101,8 +127,10 @@ data ConfigSt = ConfigSt
   , _csAllPlaylists :: Vec.Vector Playlist
   , _csAllDirs :: Vec.Vector FilePath
   , _csAllAlbums :: Vec.Vector Album
-  , -- Config loaded from the YAML config file.
+  , -- Config loaded from /config.yaml
     _csConfigs :: ConfigValue
+  , -- Eq config loaded from /eq/*
+    _csEQConfigs :: Map.Map String EQConfigValue
   }
 
 makeLenses ''ConfigSt
@@ -132,30 +160,49 @@ data Environment = Environment
 
 makeLenses ''Environment
 
+data MenuWidget
+  = MWButton String (EventM (MName St) St ())
+  | MWHeader String
+  | MWSubmenu String [MenuWidget]
+
+{- | A transient menu and the widget it is positioned relative to.
+An empty widget list means that no menu is open.
+-}
+data MenuSt = MenuSt
+  { _msWidgets :: [MenuWidget]
+  , _msLocation :: MName St
+  }
+
 -- | The full application state.
 data St
   = St
   { _stEdits :: EditSt' St
   , _stPressed :: Maybe (MName St)
+  , _stLastLeftClick :: Maybe (MName St, UTCTime)
   , _stSongProgressPreview :: Maybe (Double, Double)
+  , _stTriggeredNames :: Set.Set (MName St)
+  , _stTabStates :: Map.Map [Int] Int
   , _stLastRightPressed :: Maybe (MName St)
   , _stCurrentView :: Maybe ViewName
   , _stLastView :: Maybe ViewName
   , _stDialog :: Maybe DialogSt
-  , _stMenu :: Maybe [(String, EventM (MName St) St ())]
+  , _stMenu :: MenuSt
   , _stMode :: Mode
   , _stDialogView :: Maybe ViewName
   , _stSelectedAlbum :: Maybe Int
   , _stSelectedPlaylist :: Int
+  , _stSelectedSong :: Maybe (MPD.Song, SongFileExtraInfo)
   , _stConfig :: ConfigSt
   , _stPlaying :: PlayingSt
   , _stLogs :: [(LogLevel, String)]
   , _stChannel :: Maybe (BChan Request)
-  , _stPicCache :: Map.Map AlbumArtKey AlbumArt
+  , _stImageCache :: ImageCache
+  , _stLayoutResize :: Maybe ([Int], Int)
   , _stPanic :: Bool
   , _stEnv :: Environment
   }
 
+makeLenses ''MenuSt
 makeLenses ''St
 
 type Event = Event' ConfigSt

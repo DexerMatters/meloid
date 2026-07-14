@@ -1,6 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 
 {- | This module provides views for the application.
 Views are the top-level widgets of the application which
@@ -13,7 +12,6 @@ themselves in the context of child widgets.
 -}
 module Widgets.Views (
   DebugViewport (..),
-  lookupRenderedImage,
   drawView,
   drawDialogView,
 ) where
@@ -22,36 +20,17 @@ import Brick
 import Brick.Widgets.Center qualified as C
 import Brick.Widgets.Core qualified as W
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
-import Data.Vector qualified as Vec
-import Lens.Micro ((^.), (^?))
+import Lens.Micro
 import Network.MPD qualified as MPD
 import Types
 import Widgets.Common
 import Widgets.Controls
 import Widgets.Edits (CommandEditor (CommandEditor))
-import Widgets.Images (AlbumArtPlaying (..), lookupAlbumThumbRenderedImage)
-import Widgets.Lists (
-  AlbumArtThumb (..),
-  AlbumSongList (..),
-  AllAlbumList (..),
-  QueueSongList (..),
- )
+import Widgets.Elements.Element (ElementName (..))
+import Widgets.Image (drawPlayingImage)
 
 data DebugViewport = DebugViewport
-
-{- | This function combines the lookup of the playing
-album image and ones in the album list to search for
-an arbitrary rendered image
--}
-lookupRenderedImage :: St -> MName St -> ImageSize -> Maybe RenderedImage
-lookupRenderedImage st name size
-  | Just AlbumArtPlaying <- castMName name =
-      st ^. stCurrentAlbumArt >>= (Map.!? size)
-  | Just (AlbumArtThumb i) <- castMName name =
-      lookupAlbumThumbRenderedImage st i size
-  | otherwise = Nothing
 
 drawView :: ViewName -> St -> Widget (MName St)
 drawView MainView st =
@@ -59,16 +38,10 @@ drawView MainView st =
     [ W.hBox
         [ drawControlPanel st
         , W.padLeft (W.Pad 2) . W.padRight (W.Pad 1) $ drawSongPanel st
-        , drawNamed st AlbumArtPlaying
+        , W.hLimit 6 . W.vLimit 3 $ drawPlayingImage st
         ]
-    , W.padTop (W.Pad 1) . W.hBox $
-        [ W.hLimitPercent 40 $ drawNamed st AllAlbumList
-        , W.padLeft (W.Pad 1) $
-            W.vBox
-              [ drawAlbumSongList st
-              , drawCurrentQueueList st
-              ]
-        ]
+    , W.padTop (W.Pad 1) . W.padBottom W.Max $
+        drawNamed st (ElementName [])
     , drawBottomBar st
     ]
 drawView DebugView st = drawNamed st DebugViewport
@@ -150,26 +123,8 @@ instance Drawable St DebugViewport where
                     Error -> "errorLog"
             ]
   parent _ = Just (ParentView DebugView)
-  handlesMouseScrollUp _ = True
-  handlesMouseScrollDown _ = True
-  onMouseScrollUp _ = scrollViewportBy (mName DebugViewport) (-1)
-  onMouseScrollDown _ = scrollViewportBy (mName DebugViewport) 1
-
-drawAlbumSongList :: St -> Widget (MName St)
-drawAlbumSongList st =
-  case selected of
-    Nothing -> W.emptyWidget
-    Just _ ->
-      W.vBox
-        [ W.hBox
-            [ withAttr (attrName "label") (W.str " TRACKS ")
-            , W.padLeft W.Max $ withAttr (attrName "meta") $ W.str $ album
-            ]
-        , drawNamed st AlbumSongList
-        ]
- where
-  selected = (st ^. stSelectedAlbum) >>= ((st ^. stConfig . csAllAlbums) Vec.!?)
-  album = maybe "" albumName selected
+  onMouseScrollUp _ = Just $ scrollViewportBy (mName DebugViewport) (-1)
+  onMouseScrollDown _ = Just $ scrollViewportBy (mName DebugViewport) 1
 
 drawSongPanel :: St -> Widget (MName St)
 drawSongPanel st =
@@ -190,37 +145,19 @@ drawControlPanel :: St -> Widget (MName St)
 drawControlPanel st =
   W.hLimit 21 $
     W.vBox
-      [ W.hBox
-          [ W.vBox
-              [ drawNamed st IncreaseVolumeButton
-              , drawNamed st DecreaseVolumeButton
-              ]
-          , W.vBox
-              [ W.str $ "TIME " <> formatSecs (floor elapsed) <> "/" <> formatSecs (floor total)
-              , W.hBox
-                  [ W.str $ "VOL  " <> show (st ^. stConfig . csVolume) <> "%"
-                  , W.padLeft W.Max $ drawNamed st RewindButton
-                  , W.padLeft (W.Pad 1) $ drawNamed st PlayButton
-                  , W.padLeft (W.Pad 1) $ drawNamed st ForwardButton
-                  ]
+      [ W.vBox
+          [ W.str $ "TIME " <> formatSecs (floor elapsed) <> "/" <> formatSecs (floor total)
+          , W.hBox
+              [ W.str $ "VOL  " <> show (st ^. stConfig . csVolume) <> "%"
+              , W.padLeft W.Max $ drawNamed st RewindButton
+              , W.padLeft (W.Pad 1) $ drawNamed st PlayButton
+              , W.padLeft (W.Pad 1) $ drawNamed st ForwardButton
               ]
           ]
       , drawNamed st VolumeBar
       ]
  where
   (elapsed, total) = fromMaybe (0, 0) $ st ^. stShownCurrentTime
-
-drawCurrentQueueList :: St -> Widget (MName St)
-drawCurrentQueueList st =
-  W.vBox
-    [ W.hBox
-        [ withAttr (attrName "label") $ W.str " CURRENT QUEUE "
-        , W.padLeft W.Max $ drawNamed st ShuffleButton
-        , W.padLeft (W.Pad 1) $ drawNamed st ReverseOrderButton
-        , W.padLeft (W.Pad 1) . W.padRight (W.Pad 1) $ drawNamed st ClearButton
-        ]
-    , drawNamed st QueueSongList
-    ]
 
 drawBottomBar :: St -> Widget (MName St)
 drawBottomBar st =

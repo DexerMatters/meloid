@@ -1,22 +1,12 @@
-{-# LANGUAGE LambdaCase #-}
-
-{- | Generic layer and strict extent helpers.
-The layer list is the single source of truth for top-level
-rendering order. Strict extents add occlusion awareness on top
-of Brick's raw reported extents.
--}
+-- | Top-level layer declarations for the Brick interface.
 module Widgets.Layer (
   LayerName (..),
-  StrictExtent (..),
   activeLayerNames,
   activeOccluderNames,
-  lookupStrictExtent,
 ) where
 
-import Brick.Main qualified as M
-import Brick.Types (EventM, Extent, Location (..), extentSize, extentUpperLeft)
 import Brick.Widgets.Center qualified as C
-import Data.Maybe (catMaybes, mapMaybe)
+import Data.Maybe (mapMaybe)
 import Lens.Micro ((^.))
 import Types
 import Widgets.Lists (drawMenuLayer)
@@ -26,11 +16,6 @@ data LayerName
   = ViewLayer ViewName
   | DialogLayer ViewName
   | MenuLayer
-
-data StrictExtent n = StrictExtent
-  { strictRawExtent :: Extent n
-  , strictOccluders :: [Extent n]
-  }
 
 instance Drawable St LayerName where
   draw (ViewLayer view) st = drawView view st
@@ -53,46 +38,14 @@ activeLayerNames st =
     <> maybe [] (pure . mName . DialogLayer) (st ^. stDialogView)
     <> maybe [] (pure . mName . ViewLayer) (st ^. stCurrentView)
  where
-  menuLayer = case st ^. stMenu of
-    Just _ -> [mName MenuLayer]
-    Nothing -> []
+  menuLayer
+    | null (st ^. stMenu . msWidgets) = []
+    | otherwise = [mName MenuLayer]
 
 -- | Extent-reporting widgets that cover lower layers.
 activeOccluderNames :: St -> [MName St]
 activeOccluderNames =
   mapMaybe (named layerSurface) . activeLayerNames
-
-lookupStrictExtent :: (Eq n) => n -> [n] -> EventM n s (Maybe (StrictExtent n))
-lookupStrictExtent name occluderNames =
-  M.lookupExtent name >>= \case
-    Nothing ->
-      pure Nothing
-    Just rawExtent -> case extentBox rawExtent of
-      Nothing ->
-        pure Nothing
-      Just rawBox -> do
-        occluders <- catMaybes <$> traverse M.lookupExtent occluderNames
-        pure . Just $
-          StrictExtent
-            rawExtent
-            [ occluder
-            | occluder <- occluders
-            , Just occluderBox <- [extentBox occluder]
-            , boxesIntersect rawBox occluderBox
-            ]
- where
-  extentBox extent
-    | w <= 0 || h <= 0 = Nothing
-    | otherwise = Just (x, y, w, h)
-   where
-    Location (x, y) = extentUpperLeft extent
-    (w, h) = extentSize extent
-
-  boxesIntersect (ax, ay, aw, ah) (bx, by, bw, bh) =
-    ax < bx + bw
-      && bx < ax + aw
-      && ay < by + bh
-      && by < ay + ah
 
 viewIndex :: ViewName -> Int
 viewIndex MainView = 0

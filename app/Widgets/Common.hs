@@ -18,6 +18,8 @@ module Widgets.Common (
   openMenu,
   scrollViewportBy,
   strClippedWithEllipsis,
+  strFillingAvailableWidth,
+  viewportWithBar,
 )
 where
 
@@ -31,17 +33,17 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Typeable (Typeable)
 import Data.Vector qualified as Vec
 import Graphics.Vty qualified as V
-import Lens.Micro ((^.))
-import Lens.Micro.Mtl
+import Lens.Micro (to, (^.))
 import Network.MPD qualified as MPD
 import Types
+import Utils (ceilingDiv)
 
 {- | Draws a button with the ability to change the attributes when
 pressed.
 -}
 drawButton :: St -> MName St -> String -> Widget (MName St)
 drawButton st name label =
-  W.withAttr (attrName "button" <> pressedAttr st name) $
+  W.withDefAttr (attrName "button" <> pressedAttr st name) $
     W.str label
 
 {- | Draws an icon button which is similar to a button but it has a
@@ -59,10 +61,6 @@ drawGeneralButton :: St -> MName St -> Widget (MName St) -> Widget (MName St)
 drawGeneralButton st name inner
   | st ^. stPressed == Just name = W.withDefAttr (attrName "focused") inner
   | otherwise = inner
-
--- | Opens a menu.
-openMenu :: [(String, EventM (MName St) St ())] -> EventM (MName St) St ()
-openMenu = (stMenu .=) . Just
 
 {- | A scroll bar for a viewport, which provides a draggable thumb
 to scroll the viewport.
@@ -82,8 +80,7 @@ instance Drawable St ScrollBar where
         W.vBox $
           fmap drawTrackCell $
             scrollbarThumb height total scrollTop
-  handlesMouseLeftDown _ = True
-  onMouseLeftDown (ScrollBar target) (Location (ax, ay)) =
+  onMouseLeftDown (ScrollBar target) = Just $ \(Location (ax, ay)) ->
     when (ax == 0) $
       B.lookupViewport target >>= \case
         Nothing ->
@@ -125,6 +122,13 @@ strClippedWithEllipsis s =
           if length s > width && width > 3
             then take (width - 3) s <> "..."
             else take width s
+
+strFillingAvailableWidth :: String -> Widget n
+strFillingAvailableWidth s =
+  Widget Greedy Fixed $ do
+    ctx <- getContext
+    let width = ctx ^. availWidthL
+    render . W.str $ s <> replicate (width - length s) ' '
 
 scrollbarThumb :: Int -> Int -> Int -> [Bool]
 scrollbarThumb height total scrollTop
@@ -182,9 +186,6 @@ makeBarWith steps fullChar partialChars fullWidth count total
     | otherwise = [partialChars !! (remainder - 1)]
   prefix = replicate fullCells fullChar <> partial
 
-ceilingDiv :: Int -> Int -> Int
-ceilingDiv numerator denominator = (numerator + denominator - 1) `div` denominator
-
 -- | Draws a list of albums.
 drawAlbumList ::
   (Typeable a, Drawable St a) =>
@@ -196,13 +197,15 @@ drawAlbumList ::
   (Int -> a) ->
   -- | Thumbnail (indexed)
   (Int -> Widget (MName St)) ->
+  -- | Row height
+  Int ->
   -- | Albums to display
   Vec.Vector Album ->
   Widget (MName St)
-drawAlbumList st listName entryName thumbWidget albums =
+drawAlbumList st listName entryName thumbWidget rowHeight albums =
   viewportWithBar st listName . W.vBox $
     Vec.toList $
-      Vec.imap (drawAlbumRow st entryName thumbWidget) albums
+      Vec.imap (drawAlbumRow st entryName thumbWidget rowHeight) albums
 
 -- | Draw a list of songs
 drawSongList ::
@@ -246,13 +249,15 @@ drawAlbumRow ::
   (Int -> a) ->
   -- | Thumbnail (indexed)
   (Int -> Widget (MName St)) ->
+  -- | Row height
+  Int ->
   -- | Index in the list
   Int ->
   -- | Album infomation
   Album ->
   Widget (MName St)
-drawAlbumRow st entryName thumbWidget i album =
-  W.vLimit (snd albumArtThumbSize) $
+drawAlbumRow st entryName thumbWidget rowHeight i album =
+  W.vLimit rowHeight $
     withSelectedAttr $
       W.hBox
         [ thumbWidget i
@@ -288,7 +293,7 @@ drawSongRow st entryName i songs orderMapping =
   case songs Vec.!? i of
     Nothing -> W.emptyWidget
     Just song ->
-      drawGeneralButton st (mName $ entryName i) $
+      withStyle song . drawGeneralButton st (mName $ entryName i) $
         W.hBox
           [ W.hLimit 3 . W.withAttr (attrName "text") $
               W.str $
@@ -298,6 +303,11 @@ drawSongRow st entryName i songs orderMapping =
           , W.withAttr (attrName "text") $ W.fill '.'
           , W.str $ formatSecs (MPD.sgLength song)
           ]
+ where
+  withStyle song
+    | st ^. stSelectedSong . to (fmap fst) == Just song =
+        W.withDefAttr (attrName "focused")
+    | otherwise = id
 
 drawTrackCell :: Bool -> Widget (MName St)
 drawTrackCell True =

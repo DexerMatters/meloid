@@ -14,19 +14,16 @@ import Brick.Types (
  )
 import Brick.Widgets.Edit qualified as E
 import Compat.Image qualified as Image
-import Compat.Locations
 import Compat.Term qualified as Term
 import Control.Concurrent (forkIO)
-import Control.Exception (finally)
 import Control.Monad (void)
 import Control.Monad.State (execState)
 import Data.Map qualified as Map
+import Data.Set qualified as Set
 import Data.Vector qualified as Vec
-import GHC.IORef
 import Graphics.Vty qualified as V
 import Graphics.Vty.CrossPlatform qualified as Vty
 import Handle
-import Lens.Micro
 import Lens.Micro.Mtl
 import Sys qualified
 import Types
@@ -38,23 +35,23 @@ drawUI :: St -> [Widget (MName St)]
 drawUI st =
   map (drawMName st) (Names.activeLayerNames st)
 
-app :: BChan Event -> Image.ImageService -> B.AttrMap -> M.App St Event (MName St)
-app chan imageService attrMap =
+app :: Image.ImageService -> B.AttrMap -> M.App St Event (MName St)
+app imageService attrMap =
   M.App
     { M.appDraw = drawUI
     , M.appStartEvent = handleStartEvent
     , M.appChooseCursor = M.showFirstCursor
     , M.appAttrMap = const attrMap
-    , M.appHandleEvent = handleEvent chan imageService
+    , M.appHandleEvent = handleEvent imageService
     }
 
-runApp :: IORef ConfigValue -> IO ()
-runApp defConfig = do
+main :: IO ()
+main = do
   -- Event channel
   chan <- newBChan 2048
   -- Request channel (send requests to the MPD backend)
   requestChan <- newBChan 2048
-  -- Image service (the backend for album art)
+  -- Image service (the terminal image backend)
   imageService <- Image.startImageService chan
   void $ forkIO $ Sys.musicPlayerThread requestChan chan
 
@@ -66,26 +63,18 @@ runApp defConfig = do
   vty <- mkVty
 
   -- Initialize the state
-  defConf <- readIORef defConfig
   let st = flip execState defaultSt $ do
         stChannel .= Just requestChan
         stCurrentView .= Just MainView
         stLastView .= Just MainView
-        stConfig . csConfigs .= defConf
-  finalSt <-
+  _finalSt <-
     M.customMain
       vty
       mkVty
       (Just chan)
-      (app chan imageService (T.themeToAttrMap defaultTheme))
+      (app imageService (T.themeToAttrMap defaultTheme))
       st
-  writeIORef defConfig (finalSt ^. stConfig . csConfigs)
-
-main :: IO ()
-main = do
-  conf <- newIORef (defaultSt ^. stConfig . csConfigs)
-  runApp conf `finally` do
-    saveConfigValue <$> readIORef conf
+  return ()
 
 -- | The initial state
 defaultSt :: St
@@ -96,16 +85,20 @@ defaultSt =
           { _esCommand = (E.editor (mName CommandEditor) Nothing "")
           }
     , _stPressed = Nothing
+    , _stLastLeftClick = Nothing
+    , _stTriggeredNames = Set.empty
+    , _stTabStates = Map.empty
     , _stSongProgressPreview = Nothing
     , _stLastRightPressed = Nothing
     , _stCurrentView = Nothing
     , _stLastView = Nothing
     , _stDialog = Nothing
     , _stDialogView = Nothing
-    , _stMenu = Nothing
+    , _stMenu = MenuSt [] placeholderName
     , _stMode = NormalMode
     , _stSelectedAlbum = Nothing
     , _stSelectedPlaylist = 0
+    , _stSelectedSong = Nothing
     , _stConfig =
         ConfigSt
           { _csVolume = 0
@@ -113,7 +106,14 @@ defaultSt =
           , _csAllPlaylists = Vec.empty
           , _csAllDirs = Vec.empty
           , _csAllAlbums = Vec.empty
-          , _csConfigs = defaultConfigValue
+          , _csConfigs =
+              ConfigValue
+                { _cvColorMode = "auto"
+                , _cvShowWelcome = True
+                , _cvEq = "default"
+                , _cvLayout = placeholderLayout
+                }
+          , _csEQConfigs = Map.empty
           }
     , _stPlaying =
         PlayingSt
@@ -124,7 +124,8 @@ defaultSt =
           }
     , _stLogs = []
     , _stChannel = Nothing
-    , _stPicCache = Map.empty
+    , _stImageCache = Map.empty
+    , _stLayoutResize = Nothing
     , _stPanic = False
     , _stEnv =
         Environment

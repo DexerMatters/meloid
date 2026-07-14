@@ -9,20 +9,11 @@ module Types.Core (
   formatMode,
   Event' (..),
   Request (..),
-  ImageRequest (..),
-  ImageSize,
-  AlbumArtKey,
-  RenderedImage (..),
-  AlbumArt,
   LogLevel (..),
 ) where
 
-import Compat.Term (ImageFormat)
-import Data.ByteString (ByteString)
-import Data.Map qualified as Map
 import Data.Vector qualified as Vec
 import Network.MPD qualified as MPD
-
 -- | The UI mode of the application.
 data Mode = NormalMode | CommandMode | EditMode
   deriving (Show, Eq)
@@ -40,7 +31,7 @@ data Event' a
   | UpdateStatus MPD.Status
   | UpdateTime (Maybe (Double, Double))
   | UpdateCurrentQueueState MPD.Status (Maybe MPD.Song) (Vec.Vector MPD.Song)
-  | LoadAlbumArt (AlbumArtKey, AlbumArt)
+  | ImagesReady
   | UpdateConfig a
   | Halt
 
@@ -51,23 +42,8 @@ data Request
   | SignalQuit
   | SignalCurrentQueue
   | LogConfig LogLevel String
+  | UpdateEQId String
   | GetConfig
-
--- | Work items for image extraction and conversion.
-data ImageRequest
-  = RenderAlbumArt AlbumArtKey FilePath ImageFormat
-
-type ImageSize = (Int, Int)
-
-type AlbumArtKey = String
-
--- | The rendered image payload stored in the cache.
-data RenderedImage
-  = InlineSymbols String
-  | TerminalGraphic ImageFormat ByteString
-  deriving (Eq, Show)
-
-type AlbumArt = Map.Map ImageSize RenderedImage
 
 -- | Log levels used by the in-app log view.
 data LogLevel = Debug | Info | Warn | Error

@@ -7,10 +7,83 @@ properties:
   showWelcome:
     type: boolean
     description: Whether to show the welcome message.
-
   colorMode:
     type: string
     enum:
       - light
       - dark
       - auto
+  eq:
+    type: string
+    description: The name of the EQ configuration to use.
+  layout:
+    $ref: "#/$defs/layoutElement"
+    description: The main view layout tree.
+required:
+  - showWelcome
+  - colorMode
+  - eq
+  - layout
+$defs:
+  layoutLeaf:
+    type: string
+    enum:
+      - albumList
+      - trackList
+      - currentQueue
+      - equalizer
+      - placeholder
+  layoutHBox:
+    type: object
+    additionalProperties: false
+    required:
+      - hBox
+    properties:
+      hBox:
+        type: array
+        prefixItems:
+          - oneOf:
+              - $ref: "#/$defs/layoutWeights"
+              - $ref: "#/$defs/layoutElement"
+        items:
+          $ref: "#/$defs/layoutElement"
+  layoutVBox:
+    type: object
+    additionalProperties: false
+    required:
+      - vBox
+    properties:
+      vBox:
+        type: array
+        prefixItems:
+          - oneOf:
+              - $ref: "#/$defs/layoutWeights"
+              - $ref: "#/$defs/layoutElement"
+        items:
+          $ref: "#/$defs/layoutElement"
+  layoutTabs:
+    type: object
+    additionalProperties: false
+    required:
+      - tabs
+    properties:
+      tabs:
+        type: array
+        items:
+          $ref: "#/$defs/layoutElement"
+  layoutWeights:
+    type: object
+    additionalProperties: false
+    required:
+      - weights
+    properties:
+      weights:
+        type: array
+        items:
+          type: number
+  layoutElement:
+    oneOf:
+      - $ref: "#/$defs/layoutLeaf"
+      - $ref: "#/$defs/layoutHBox"
+      - $ref: "#/$defs/layoutVBox"
+      - $ref: "#/$defs/layoutTabs"

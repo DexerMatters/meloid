@@ -22,6 +22,12 @@ extra-doc-files:
 extra-source-files:
   assets/config.schema.yaml
   assets/default-config.yaml
+  assets/default-eq.txt
+  assets/pipewire/meloid-eq.conf
+
+data-files:
+  tools/package.json
+  tools/update_config_yaml.mjs
 
 common warnings
   ghc-options: -Wall
@@ -32,30 +38,44 @@ executable meloid
   main-is:          Main.hs
   other-modules:
     Attrs
+    Utils
     Sys
-    Image
     Cmd
     Types
     Types.Identity
     Types.Core
+    Types.Image
     Types.Model
     Types.Schemas
+    Types.Schemas.Config
+    Types.Schemas.EQConfig
+    Types.Schemas.Element
+    Types.Schemas.MPDConfig
     Types.Helpers
     Types.Actions
     Types.Logging
+    Types.Configs
     Handle
     Widgets
     Widgets.Common
-    Widgets.Images
+    Widgets.Elements
+    Widgets.Elements.Common
+    Widgets.Elements.Element
+    Widgets.Elements.Header
+    Widgets.Elements.Scaffold
     Widgets.Layer
     Widgets.Lists
     Widgets.Controls
     Widgets.Views
     Widgets.Edits
+    Widgets.Image
+    Widgets.Visual.EQ
     Compat.Image
     Compat.Term
     Compat.Ansi
-    Compat.Locations
+    Compat.Software
+
+    Paths_meloid
 
   -- other-extensions:
   build-depends:    
@@ -63,6 +83,7 @@ executable meloid
     mtl,
     containers,
     directory,
+    filepath,
     process,
     transformers,
     template-haskell,
@@ -71,6 +92,7 @@ executable meloid
     brick,
     vty,
     text-zipper,
+    text,
 
     -- Lens packages
     microlens-th,
@@ -89,8 +111,12 @@ executable meloid
     vector,
     vector-algorithms,
     vty-crossplatform,
+
+    -- Parsers
     aeson,
-    yaml
+    yaml,
+    megaparsec,
+    scientific
 
   hs-source-dirs:   app
   default-language: GHC2024
