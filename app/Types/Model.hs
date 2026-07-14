@@ -53,6 +53,8 @@ module Types.Model (
   csAllAlbums,
   csConfigs,
   csEQConfigs,
+  csMPDConfigs,
+  csMPDConfigsBackup,
   -- PlayingSt lenses
   psCurrentSong,
   psCurrentTime,
@@ -131,6 +133,10 @@ data ConfigSt = ConfigSt
     _csConfigs :: ConfigValue
   , -- Eq config loaded from /eq/*
     _csEQConfigs :: Map.Map String EQConfigValue
+  , -- MPD config files, including files reached through `include` directives.
+    _csMPDConfigs :: MPDConfigValue
+  , -- Backup of _csMPDConfigs
+    _csMPDConfigsBackup :: MPDConfigValue
   }
 
 makeLenses ''ConfigSt

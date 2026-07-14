@@ -70,6 +70,7 @@ executable meloid
     Widgets.Edits
     Widgets.Image
     Widgets.Visual.EQ
+    Widgets.Visual.Spectrum
     Compat.Image
     Compat.Term
     Compat.Ansi

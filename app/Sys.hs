@@ -74,6 +74,34 @@ songChangeLoopThread ip port evChan = withMPD ip port $ forever $ do
 -- | The main loop of the MPD backend
 musicPlayerThread :: BChan Request -> BChan Event -> IO ()
 musicPlayerThread reqChan evChan = do
+  -- Initialize stored configs
+  configs <- runExceptT (Stored.read Stored.Configs) >>= either panic pure
+  eqConfigs <- runExceptT loadEQConfigs >>= either panic pure
+  mpdConfigs <- runExceptT (Stored.read Stored.MPDConfigs) >>= either panic pure
+
+  musicDir <- Stored.mpdMusicDirectory mpdConfigs
+  log $ "Config is loaded successfully"
+  log $ "EQ configs are loaded successfully"
+  forM_ musicDir $ \dir ->
+    log $ "Detected MPD music directory: " <> dir
+
+  -- Update modules
+  -- Currently, Pipewire is the only supported audio server
+  updateModuleEQId PipeWire (configs ^. cvEq)
+
+  -- Restart audio server
+  -- Currently, Pipewire is the only supported audio server
+  -- TODO: Restarting is still unstable
+  -- runExceptT (restartAudioServer PipeWire) >>= either panic pure
+  -- log $ "Audio server is restarted successfully: " <> show PipeWire
+
+  -- Load app's sink to MPD config
+  let mpdConfigs' = mpdModify ["audio_output", "sink"] (const "\"meloid_eq\"") mpdConfigs
+  runExceptT (Stored.save Stored.MPDConfigs mpdConfigs') >>= either panic pure
+
+  -- Restart MPD
+  runExceptT restartMPDServer >>= either panic pure
+
   -- Get network status
   (socket, ip, port) <- runExceptT getMPDSocket >>= either panic pure
   log $
@@ -105,36 +133,6 @@ musicPlayerThread reqChan evChan = do
       log "MPD is available."
 
   _ <- withMPD ip port $ MPD.rescan Nothing
-
-  -- Initialize stored configs
-  configs <- runExceptT (Stored.read Stored.Configs) >>= either panic pure
-  eqConfigs <- runExceptT loadEQConfigs >>= either panic pure
-  musicDir <-
-    runExceptT getMPDMusicDirectory >>= \case
-      Left err -> do
-        logEv evChan Warn "MPD" $
-          unlines
-            [ "Failed to read MPD music_directory from local config files."
-            , err
-            , "Song file inspection will stay unavailable until a music directory is resolved."
-            ]
-        pure Nothing
-      Right dir ->
-        pure dir
-  log $ "Config is loaded successfully: " <> toString configs
-  log $ "EQ configs are loaded successfully: " <> show eqConfigs
-  forM_ musicDir $ \dir ->
-    log $ "Detected MPD music directory: " <> dir
-
-  -- Update modules
-  -- Currently, Pipewire is the only supported audio server
-  updateModuleEQId PipeWire (configs ^. cvEq)
-
-  -- Restart audio server
-  -- Currently, Pipewire is the only supported audio server
-  -- TODO: Restarting is still unstable
-  -- runExceptT (restartAudioServer PipeWire) >>= either panic pure
-  -- log $ "Audio server is restarted successfully: " <> show PipeWire
 
   forever $ do
     req <- readBChan reqChan
@@ -215,6 +213,8 @@ musicPlayerThread reqChan evChan = do
                   , _csAllAlbums = Vec.fromList albums
                   , _csConfigs = configs
                   , _csEQConfigs = eqConfigs
+                  , _csMPDConfigs = mpdConfigs'
+                  , _csMPDConfigsBackup = mpdConfigs
                   }
         either (pure . Just . Left) (const $ pure Nothing) result
 

@@ -9,26 +9,31 @@ module Types.Configs (
   StoredConfigs (..),
   Configs (..),
   EQConfigs (..),
+  MPDConfigs (..),
+  mpdMusicDirectory,
   imageCacheDir,
   configDir,
 ) where
 
 import Control.Exception
-import Control.Monad (when)
+import Control.Monad (filterM, when)
 import Control.Monad.Except
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson qualified as JSON
 import Data.ByteString.Lazy.Char8 qualified as BL8
-import Data.List (dropWhileEnd)
+import Data.Foldable (traverse_)
+import Data.List (dropWhileEnd, sort)
+import Data.Maybe (listToMaybe)
 import Language.Haskell.TH.Syntax (addDependentFile, lift, runIO)
 import Paths_meloid qualified as Paths
 import System.Directory
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
-import System.FilePath (isRelative, takeFileName, (</>))
+import System.FilePath (isAbsolute, isRelative, normalise, takeDirectory, takeFileName, (</>))
 import System.Process (readProcessWithExitCode)
 import Types.Schemas
 import Types.Schemas qualified as S
+import Utils (replace)
 
 {- | A class for storing configuration files.
 This class is responsible for determining the location,
@@ -53,6 +58,8 @@ class
 data Configs = Configs
 
 data EQConfigs = EQConfigs String
+
+data MPDConfigs = MPDConfigs
 
 {- | Prepare the configuration directory.
 The directory is responsible for storing configuration files.
@@ -134,6 +141,87 @@ instance StoredConfigs EQConfigs where
           True -> pure $ Right file
           False -> pure $ Left ("EQ file not found: " <> file)
 
+instance StoredConfigs MPDConfigs where
+  type Repr MPDConfigs = MPDConfigValue
+
+  path _ = ExceptT $ do
+    homeDir <- getHomeDirectory
+    cfgDir <- getXdgDirectory XdgConfig "mpd"
+    let candidates = [cfgDir </> "mpd.conf", homeDir </> ".mpdconf", "/etc/mpd.conf"]
+    filterM doesFileExist candidates >>= \case
+      file : _ -> pure $ Right file
+      [] ->
+        pure . Left $
+          "MPD config file not found. Checked: " <> unwords candidates
+
+  read _ = readMPDConfigs
+
+  save _ (MPDConfigValue files) = traverse_ saveMPDConfigFile files
+
+-- | Load the root MPD config and every config reached through `include`.
+readMPDConfigs :: ExceptT String IO MPDConfigValue
+readMPDConfigs = do
+  homeDir <- liftIO getHomeDirectory
+  root <- path MPDConfigs
+  MPDConfigValue <$> collect homeDir [] [root]
+ where
+  collect _ _ [] = pure []
+  collect homeDir seen (file : rest)
+    | file `elem` seen = collect homeDir seen rest
+    | otherwise = do
+        config@(MPDConfigValue files) <- readMPDConfigFile file
+        includes <-
+          liftIO $
+            concat
+              <$> mapM
+                (resolveInclude homeDir (takeDirectory file))
+                (mpdGet ["include"] config)
+        (files <>) <$> collect homeDir (file : seen) (includes <> rest)
+
+-- | Resolve the first configured music directory across loaded MPD files.
+mpdMusicDirectory :: MPDConfigValue -> IO (Maybe FilePath)
+mpdMusicDirectory config = do
+  homeDir <- getHomeDirectory
+  pure . listToMaybe $
+    [ expandMPDPath homeDir directory
+    | directory <- mpdGet ["music_directory"] config
+    ]
+
+readMPDConfigFile :: FilePath -> ExceptT String IO MPDConfigValue
+readMPDConfigFile file = do
+  content <-
+    ExceptT $
+      tryJust @IOException (Just . displayException) (readFile file)
+  liftEither $ parseMPDConfig file content
+
+saveMPDConfigFile :: (FilePath, [MPDConfigLine]) -> ExceptT String IO ()
+saveMPDConfigFile (file, lines') = do
+  if null file
+    then throwError "Cannot save an MPD config without a source path"
+    else liftIO $ writeFile file (renderMPDConfig $ MPDConfigValue [(file, lines')])
+
+resolveInclude :: FilePath -> FilePath -> String -> IO [FilePath]
+resolveInclude homeDir baseDir rawPath = do
+  let path' =
+        normalise $
+          case expandMPDPath homeDir rawPath of
+            absolute | isAbsolute absolute -> absolute
+            relative -> baseDir </> relative
+  doesFileExist path' >>= \case
+    True -> pure [path']
+    False ->
+      doesDirectoryExist path' >>= \case
+        False -> pure []
+        True -> (fmap (path' </>) . sort) <$> listDirectory path'
+
+expandMPDPath :: FilePath -> FilePath -> FilePath
+expandMPDPath homeDir path' =
+  normalise $
+    case replace "${HOME}" homeDir $ replace "$HOME" homeDir path' of
+      "~" -> homeDir
+      '~' : '/' : rest -> homeDir </> rest
+      other -> other
+
 -- | Prepare the image cache directory used by every image source.
 imageCacheDir :: IO FilePath
 imageCacheDir = do
@@ -149,8 +237,9 @@ imageCacheDir = do
  where
   tryEnsure = try . createDirectoryIfMissing True
 
--- | EQ IDs are filenames, never paths. This prevents a config value such as
--- "../other" from escaping the application's EQ configuration directory.
+{- | EQ IDs are filenames, never paths. This prevents a config value such as
+"../other" from escaping the application's EQ configuration directory.
+-}
 eqConfigFileName :: String -> Maybe FilePath
 eqConfigFileName eqId
   | null eqId = Nothing

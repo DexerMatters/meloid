@@ -1,0 +1,1 @@
+module Widgets.Visual.Spectrum where

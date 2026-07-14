@@ -24,6 +24,7 @@ import Data.Vector qualified as Vec
 import Graphics.Vty qualified as V
 import Graphics.Vty.CrossPlatform qualified as Vty
 import Handle
+import Lens.Micro ((^.))
 import Lens.Micro.Mtl
 import Sys qualified
 import Types
@@ -67,14 +68,14 @@ main = do
         stChannel .= Just requestChan
         stCurrentView .= Just MainView
         stLastView .= Just MainView
-  _finalSt <-
+  finalSt <-
     M.customMain
       vty
       mkVty
       (Just chan)
       (app imageService (T.themeToAttrMap defaultTheme))
       st
-  return ()
+  handleInterrupt (finalSt ^. stConfig)
 
 -- | The initial state
 defaultSt :: St
@@ -114,6 +115,8 @@ defaultSt =
                 , _cvLayout = placeholderLayout
                 }
           , _csEQConfigs = Map.empty
+          , _csMPDConfigs = MPDConfigValue []
+          , _csMPDConfigsBackup = MPDConfigValue []
           }
     , _stPlaying =
         PlayingSt
