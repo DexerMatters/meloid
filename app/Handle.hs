@@ -8,7 +8,6 @@ Events are basically classified into three categories:
 module Handle (
   handleEvent,
   handleStartEvent,
-  handleInterrupt,
 ) where
 
 import Brick qualified as B
@@ -24,7 +23,6 @@ import Compat.Term qualified as Term
 import Control.Monad (unless, void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State (get)
-import Control.Monad.Trans.Except (runExceptT)
 import Data.Foldable (for_)
 import Data.Functor (($>))
 import Data.List (find)
@@ -36,9 +34,7 @@ import Graphics.Vty qualified as V
 import Lens.Micro
 import Lens.Micro.Mtl
 import Network.MPD qualified as MPD
-import System.IO (hPutStrLn, stderr)
 import Types
-import Types.Configs qualified as Stored
 import Widgets.Image (imageScene)
 import Widgets.Layer (activeOccluderNames)
 import Widgets.Lists (MenuEntry (..))
@@ -90,13 +86,6 @@ handleEvent' imageService = \case
     handleAppEvent imageService appEvent
   _ ->
     pure ()
-
--- | Restore the MPD configuration captured at startup before the UI exits.
-handleInterrupt :: ConfigSt -> IO ()
-handleInterrupt config =
-  runExceptT (Stored.save Stored.MPDConfigs (config ^. csMPDConfigsBackup)) >>= \case
-    Left err -> hPutStrLn stderr $ "Failed to restore MPD config: " <> err
-    Right () -> pure ()
 
 {- | The function that handles the global events. When it
 returns true, it consumes the event without passing it
@@ -189,6 +178,7 @@ handleAppEvent imageService = \case
   -- accquired when the program starts
   UpdateConfig config -> do
     stConfig .= config
+    stSelectedEQConfig .= Just (config ^. csConfigs . cvEq)
     queueMainViewRefresh imageService
   -- Drain all worker completions in one state update and refresh once.
   ImagesReady -> do

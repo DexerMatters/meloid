@@ -36,7 +36,6 @@ Headers and controls use this as their parent so their names remain stable
 when normal rendering is replaced by edit-mode scaffolds.
 -}
 data ElementNode = ElementNode ElementPath
-  deriving (Show, Eq)
 
 -- | The primary axis used to distribute a container's children.
 data LayoutAxis = Horizontal | Vertical

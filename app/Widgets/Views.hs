@@ -58,7 +58,7 @@ drawWelcomeDialog :: St -> Widget (MName St)
 drawWelcomeDialog st =
   W.withAttr (attrName "dialog") $
     W.padAll 2 . W.vBox $
-      [ C.hCenter $ W.str "Welcome to Meloid"
+      [ C.hCenter $ W.str "Notice"
       , C.hCenter pageWidget
       , W.padTop (W.Pad 2) $
           W.hBox

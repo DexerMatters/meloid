@@ -13,8 +13,6 @@ module Types.Helpers (
   stSelectedSongMeta,
   stCurrentSongPos,
   stSelectedAlbumSongs,
-  stCurrentEQ,
-  stCurrentEQIndex,
   stLayoutElement,
   stShownCurrentTime,
   stIsTriggered,
@@ -33,8 +31,8 @@ import Lens.Micro (to, (<&>), (^.), _Just)
 import Lens.Micro.Type (SimpleGetter)
 import Network.MPD qualified as MPD
 import Text.Read (readMaybe)
-import Types.Identity (MName)
 import Types.Model
+import Types.Identity (MName)
 import Types.Schemas
 import Utils (formatSecs)
 
@@ -108,7 +106,7 @@ stSelectedAlbumSongs = to $ \st ->
     (st ^. stSelectedAlbum) >>= ((st ^. stConfig . csAllAlbums) Vec.!?)
 
 stIsTriggered :: MName St -> SimpleGetter St Bool
-stIsTriggered name = to $ \st -> Set.member name (st ^. stTriggeredNames)
+stIsTriggered name = to $ \st -> Set.member name (st ^. stTriggerItem)
 
 -- | The time shown in the UI, taking drag previews into account.
 stShownCurrentTime :: SimpleGetter St (Maybe (Double, Double))
@@ -117,18 +115,6 @@ stShownCurrentTime =
     case st ^. stSongProgressPreview of
       Just previewTime -> Just previewTime
       Nothing -> st ^. stPlaying . psCurrentTime
-
--- | The current EQ config value.
-stCurrentEQ :: SimpleGetter St EQConfigValue
-stCurrentEQ = to $ \st ->
-  -- SAFETY: It is guaranteed at the config loading stage
-  (st ^. stConfig . csEQConfigs) Map.! (st ^. stConfig . csConfigs . cvEq)
-
--- | The current EQ config index.
-stCurrentEQIndex :: SimpleGetter St (Maybe Int)
-stCurrentEQIndex = to $ \st ->
-  -- SAFETY: It is guaranteed at the config loading stage
-  Map.lookupIndex (st ^. stConfig . csConfigs . cvEq) (st ^. stConfig . csEQConfigs)
 
 stLayoutElement :: [Int] -> SimpleGetter St (Maybe LayoutElement)
 stLayoutElement path =

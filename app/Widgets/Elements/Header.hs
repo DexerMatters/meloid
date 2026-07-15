@@ -147,6 +147,10 @@ drawHeader path st = \case
     [ drawNamed st $ CollapsingSwitch path
     , W.fill ' '
     , W.padLeft W.Max $ drawNamed st (EQSwitch path)
+    , W.padLeft (W.Pad 1) $ drawNamed st (EQApplyButton path)
+    , case st ^. stUnsavedEQ of
+        Just _ -> W.padLeft (W.Pad 1) $ drawNamed st (EQSaveButton path)
+        Nothing -> W.emptyWidget
     ]
   ESpectrum ->
     [ drawNamed st $ CollapsingSwitch path
@@ -175,6 +179,6 @@ drawHeader path st = \case
 
 toggleCollapsed :: ElementPath -> EventM (MName St) St ()
 toggleCollapsed path =
-  use (stIsTriggered (mName $ ElementNode path)) >>= \case
-    True -> unTrigger (mName $ ElementNode path)
-    False -> trigger (mName $ ElementNode path)
+  use (stIsTriggered $ mName $ ElementNode path) >>= \case
+    True -> untrigger $ mName $ ElementNode path
+    False -> trigger $ mName $ ElementNode path

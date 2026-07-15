@@ -23,7 +23,6 @@ extra-source-files:
   assets/config.schema.yaml
   assets/default-config.yaml
   assets/default-eq.txt
-  assets/pipewire/meloid-eq.conf
 
 data-files:
   tools/package.json
@@ -50,7 +49,6 @@ executable meloid
     Types.Schemas.Config
     Types.Schemas.EQConfig
     Types.Schemas.Element
-    Types.Schemas.MPDConfig
     Types.Helpers
     Types.Actions
     Types.Logging
@@ -75,6 +73,8 @@ executable meloid
     Compat.Term
     Compat.Ansi
     Compat.Software
+    Foreign.PipeWire
+    Network.MPD
 
     Paths_meloid
 
@@ -121,4 +121,8 @@ executable meloid
     scientific
 
   hs-source-dirs:   app
+  c-sources:        app/Foreign/PipeWire.c
+  include-dirs:     app/Foreign
+  pkgconfig-depends: libpipewire-0.3
+  extra-libraries:  m
   default-language: GHC2024

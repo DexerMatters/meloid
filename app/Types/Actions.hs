@@ -14,7 +14,7 @@ module Types.Actions (
   returnToLastView,
   sendRequest,
   trigger,
-  unTrigger,
+  untrigger,
   openMenu,
   repositionMenu,
   closeMenu,
@@ -79,16 +79,16 @@ sendRequest r = do
     Just c -> liftIO $ writeBChan c r
 
 {- | Trigger a widget by its name.
-This means inserting the widget into the stTriggeredNames set.
+This means inserting the widget into the stTriggerItem set.
 -}
 trigger :: MName St -> EventM (MName St) St ()
-trigger name = stTriggeredNames %= Set.insert name
+trigger name = stTriggerItem %= Set.insert name
 
-{- | Untrigger a widget by its name.
-This means removing the widget from the stTriggeredNames set.
+{- | untrigger a widget by its name.
+This means removing the widget from the stTriggerItem set.
 -}
-unTrigger :: MName St -> EventM (MName St) St ()
-unTrigger name = stTriggeredNames %= Set.delete name
+untrigger :: MName St -> EventM (MName St) St ()
+untrigger name = stTriggerItem %= Set.delete name
 
 -- | Opens a menu relative to a stable widget name.
 openMenu :: MName St -> [MenuWidget] -> EventM (MName St) St ()

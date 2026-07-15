@@ -14,6 +14,8 @@ module Types.Core (
 
 import Data.Vector qualified as Vec
 import Network.MPD qualified as MPD
+import Types.Schemas.EQConfig (EQConfigSpecs)
+
 -- | The UI mode of the application.
 data Mode = NormalMode | CommandMode | EditMode
   deriving (Show, Eq)
@@ -43,7 +45,7 @@ data Request
   | SignalQuit
   | SignalCurrentQueue
   | LogConfig LogLevel String
-  | UpdateEQId String
+  | ApplyEQ EQConfigSpecs
   | TriggerSpectrum Bool
   | GetConfig
 

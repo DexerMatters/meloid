@@ -20,6 +20,8 @@ module Widgets.Controls (
   ShuffleButton (..),
   ClearButton (..),
   EQSwitch (..),
+  EQApplyButton (..),
+  EQSaveButton (..),
 ) where
 
 import Brick
@@ -27,15 +29,17 @@ import Brick.Main qualified as M
 import Brick.Widgets.Core qualified as W
 import Control.Monad (forM_, when)
 import Data.Map qualified as Map
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Vector qualified as Vec
-import Lens.Micro ((%~), (&), (.~), (^.))
+import Lens.Micro ((&), (.~), (^.))
 import Lens.Micro.Mtl
 import Network.MPD qualified as MPD
 import Types
+import Types.Configs (Configs (..), EQConfigs (..), saveWithPanic)
 import Utils
 import Widgets.Common
 import Widgets.Elements.Common (ElementNode (..), ElementPath, pathVariant)
+import Widgets.Lists (stCurrentEQ, stCurrentEQIndex)
 
 data VolumeBar = VolumeBar
 
@@ -68,6 +72,10 @@ data ShuffleButton = ShuffleButton
 data ClearButton = ClearButton
 
 data EQSwitch = EQSwitch ElementPath
+
+data EQApplyButton = EQApplyButton ElementPath
+
+data EQSaveButton = EQSaveButton ElementPath
 
 volumeBarWidth :: Int
 volumeBarWidth = 21
@@ -140,7 +148,7 @@ instance Drawable St EQGainBarsViewport where
     W.viewport (mName $ EQGainBarsViewport path) Horizontal $
       W.hBox
         [ W.padRight (W.Pad 1) $ drawNamed st (EQGainBar path i)
-        | i <- zipWith const [0 ..] (st ^. stCurrentEQ . eqBands)
+        | i <- zipWith const [0 ..] (st ^. stCurrentEQ . eqGains)
         ]
   onMouseScrollUp (EQGainBarsViewport path) =
     Just $
@@ -153,18 +161,17 @@ instance Drawable St EQGainBarsViewport where
 
 instance Drawable St EQGainBar where
   draw (EQGainBar _ i) st =
-    case listToMaybe (drop i (st ^. stCurrentEQ . eqBands)) of
+    case listToMaybe (drop i (st ^. stCurrentEQ . eqGains)) of
       Nothing ->
         W.emptyWidget
-      Just band ->
+      Just gain ->
         Widget Fixed Greedy $ do
           ctx <- getContext
           let totalHeight = max 5 (ctx ^. availHeightL)
               sliderHeight = max 3 (totalHeight - 2)
-              gain = band ^. eqBandGainDb
               thumbY = gainBarThumbY sliderHeight gain
               zeroY = gainBarThumbY sliderHeight 0
-              freqLabel = formatFrequencyLabel (band ^. eqBandFrequencyHz)
+              freqLabel = formatFrequencyLabel (eqFrequencies !! i)
               renderRow y
                 | y == thumbY =
                     W.withAttr (attrName "progressBarComplete") $
@@ -288,17 +295,48 @@ instance Drawable St ClearButton where
   parent _ = Just (ParentView MainView)
 
 instance Drawable St EQSwitch where
-  draw n@(EQSwitch _) st = drawButton st (mName n) icon
+  draw n st = drawButton st (mName n) icon
    where
     icon
       | st ^. stIsTriggered (mName n) = " GO CURVE "
       | otherwise = " GO TWEAK "
   onMouseLeftUp n = Just $ \_ ->
-    use (stIsTriggered (mName n)) >>= \case
-      True -> unTrigger (mName n)
-      False -> trigger (mName n)
+    use (stIsTriggered $ mName n) >>= \case
+      True -> untrigger $ mName n
+      False -> trigger $ mName n
   parent (EQSwitch path) = Just . ParentName . mName $ ElementNode path
   variant (EQSwitch path) = pathVariant path
+
+instance Drawable St EQApplyButton where
+  draw n st = drawButton st (mName n) " APPLY "
+  onMouseLeftUp _ = Just $ \_ -> do
+    EQConfigValue presets <- use $ stConfig . csEQConfigs
+    use stCurrentEQIndex >>= \case
+      Just index | index < Map.size presets -> do
+        let (eqId, preset) = Map.elemAt index presets
+        config <- use $ stConfig . csConfigs
+        saveWithPanic Configs (config & cvEq .~ eqId) >>= \case
+          True -> do
+            stConfig . csConfigs . cvEq .= eqId
+            sendRequest $ ApplyEQ preset
+          False -> pure ()
+      _ -> pure ()
+  parent (EQApplyButton path) = Just . ParentName . mName $ ElementNode path
+  variant (EQApplyButton path) = pathVariant path
+
+instance Drawable St EQSaveButton where
+  draw n st =
+    W.withAttr (attrName "unsaved") $
+      drawButton st (mName n) " SAVE "
+
+  onMouseLeftUp _ = Just $ \_ -> do
+    configs <- use (stConfig . csEQConfigs)
+    saveWithPanic EQConfigs configs >>= \case
+      True -> stUnsavedEQ .= Nothing
+      False -> pure ()
+
+  parent (EQSaveButton path) = Just . ParentName . mName $ ElementNode path
+  variant (EQSaveButton path) = pathVariant path
 
 reverseQueueMoves :: Int -> [(MPD.Position, MPD.Position)]
 reverseQueueMoves queueLength =
@@ -337,27 +375,27 @@ updateEQGainBarAt path bandIndex y =
       pure ()
 
 currentEQGainBarValue :: Int -> EventM (MName St) St Double
-currentEQGainBarValue bandIndex = do
-  currentId <- use (stConfig . csConfigs . cvEq)
-  configs <- use (stConfig . csEQConfigs)
-  pure $
-    case Map.lookup currentId configs >>= listToMaybe . drop bandIndex . (^. eqBands) of
-      Just band -> band ^. eqBandGainDb
-      Nothing -> 0
+currentEQGainBarValue bandIndex =
+  fromMaybe 0 . listToMaybe . drop bandIndex <$> use (stCurrentEQ . eqGains)
 
 setEQGainBarValue :: Int -> Double -> EventM (MName St) St ()
 setEQGainBarValue bandIndex gain = do
-  currentId <- use (stConfig . csConfigs . cvEq)
-  stConfig . csEQConfigs %= Map.adjust adjustBand currentId
+  EQConfigValue configs <- use (stConfig . csEQConfigs)
+  use stCurrentEQIndex >>= \case
+    Just currentIx | currentIx < Map.size configs -> do
+      let (currentId, EQConfigSpecs gains) = Map.elemAt currentIx configs
+          updated = EQConfigSpecs $ zipWith updateGain [0 ..] gains
+      stUnsavedEQ .= Just currentIx
+      stConfig . csEQConfigs %= \(EQConfigValue configs') ->
+        EQConfigValue $ Map.insert currentId updated configs'
+    _ -> pure ()
  where
   snappedGain =
     snapToTenths $
       clampValue (-eqGainBarNudgeLimitDb) eqGainBarNudgeLimitDb gain
-  adjustBand =
-    eqBands %~ zipWith updateBand [0 :: Int ..]
-  updateBand i band
-    | i == bandIndex = band & eqBandGainDb .~ snappedGain
-    | otherwise = band
+  updateGain i oldGain
+    | i == bandIndex = snappedGain
+    | otherwise = oldGain
 
 centerText :: Int -> String -> String
 centerText width s =

@@ -58,6 +58,7 @@ defaultTheme =
     , (a "button" <> a "pressed", black `on` primary)
     , (a "iconButton" <> a "pressed", black `on` accent)
     , (a "focused", white `on` secondary)
+    , (a "unsaved", defAttr `withStyle` italic)
     , (a "dialog", primary `on` secondary)
     , (a "header", currentAttr `withForeColor` primary `withStyle` bold)
     , (a "label", black `on` accent)

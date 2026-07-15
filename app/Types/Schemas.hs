@@ -6,10 +6,8 @@ module Types.Schemas (
   module Types.Schemas.Config,
   module Types.Schemas.EQConfig,
   module Types.Schemas.Element,
-  module Types.Schemas.MPDConfig,
 ) where
 
 import Types.Schemas.Config
 import Types.Schemas.EQConfig
 import Types.Schemas.Element
-import Types.Schemas.MPDConfig

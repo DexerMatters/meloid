@@ -27,10 +27,12 @@ module Types.Model (
   stLastLeftClick,
   stSongProgressPreview,
   stLastRightPressed,
-  stTriggeredNames,
+  stTriggerItem,
+  stUnsavedEQ,
   stTabStates,
   stCurrentView,
   stLastView,
+  stSelectedEQConfig,
   stDialog,
   stMenu,
   stMode,
@@ -49,14 +51,12 @@ module Types.Model (
   stEnv,
   -- ConfigSt lenses
   csVolume,
-  csMusicDir,
+  csMusicMounts,
   csAllPlaylists,
   csAllDirs,
   csAllAlbums,
   csConfigs,
   csEQConfigs,
-  csMPDConfigs,
-  csMPDConfigsBackup,
   -- PlayingSt lenses
   psCurrentSong,
   psCurrentTime,
@@ -132,18 +132,14 @@ data SongFileExtraInfo = SongFileExtraInfo
 -- | Static and semi-static configuration loaded from MPD.
 data ConfigSt = ConfigSt
   { _csVolume :: MPD.Volume
-  , _csMusicDir :: FilePath
+  , _csMusicMounts :: [(FilePath, FilePath)]
   , _csAllPlaylists :: Vec.Vector Playlist
   , _csAllDirs :: Vec.Vector FilePath
   , _csAllAlbums :: Vec.Vector Album
   , -- Config loaded from /config.yaml
     _csConfigs :: ConfigValue
   , -- Eq config loaded from /eq/*
-    _csEQConfigs :: Map.Map String EQConfigValue
-  , -- MPD config files, including files reached through `include` directives.
-    _csMPDConfigs :: MPDConfigValue
-  , -- Backup of _csMPDConfigs
-    _csMPDConfigsBackup :: MPDConfigValue
+    _csEQConfigs :: EQConfigValue
   }
 
 makeLenses ''ConfigSt
@@ -202,11 +198,13 @@ data St
   , _stPressed :: Maybe (MName St)
   , _stLastLeftClick :: Maybe (MName St, UTCTime)
   , _stSongProgressPreview :: Maybe (Double, Double)
-  , _stTriggeredNames :: Set.Set (MName St)
+  , _stTriggerItem :: Set.Set (MName St)
+  , _stUnsavedEQ :: Maybe Int
   , _stTabStates :: Map.Map [Int] Int
   , _stLastRightPressed :: Maybe (MName St)
   , _stCurrentView :: Maybe ViewName
   , _stLastView :: Maybe ViewName
+  , _stSelectedEQConfig :: Maybe String
   , _stDialog :: Maybe DialogSt
   , _stMenu :: MenuSt
   , _stMode :: Mode

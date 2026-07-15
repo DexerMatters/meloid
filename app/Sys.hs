@@ -26,8 +26,6 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Vector qualified as Vec
 import Lens.Micro
 import Network.MPD qualified as MPD
-import System.Directory (listDirectory)
-import System.FilePath ((</>))
 import Types hiding (panic)
 import Types.Configs qualified as Stored
 import Prelude hiding (log)
@@ -66,6 +64,7 @@ songChangeLoopThread ip port evChan = withMPD ip port $ forever $ do
   status <- MPD.status
   curSong <- MPD.currentSong
   liftIO $ do
+    void $ runExceptT routeMPDToEQ
     postEvent $ UpdateStatus status
     postEvent $ UpdateSong curSong
  where
@@ -75,36 +74,23 @@ songChangeLoopThread ip port evChan = withMPD ip port $ forever $ do
 -- | The main loop of the MPD backend
 musicPlayerThread :: BChan Request -> BChan Event -> TVar Bool -> IO ()
 musicPlayerThread reqChan evChan spectrumEnabled = do
-  -- Initialize stored configs
   configs <- runExceptT (Stored.read Stored.Configs) >>= either panic pure
-  eqConfigs <- runExceptT loadEQConfigs >>= either panic pure
-  mpdConfigs <- runExceptT (Stored.read Stored.MPDConfigs) >>= either panic pure
-
-  musicDir <- Stored.mpdMusicDirectory mpdConfigs
-  log $ "Config is loaded successfully"
-  log $ "EQ configs are loaded successfully"
-  forM_ musicDir $ \dir ->
-    log $ "Detected MPD music directory: " <> dir
-
-  -- Update modules
-  -- Currently, Pipewire is the only supported audio server
-  updateModuleEQId PipeWire (configs ^. cvEq)
-
-  -- Restart audio server
-  -- Currently, Pipewire is the only supported audio server
-  -- TODO: Restarting is still unstable
-  -- runExceptT (restartAudioServer PipeWire) >>= either panic pure
-  -- log $ "Audio server is restarted successfully: " <> show PipeWire
-
-  -- Load app's sink to MPD config
-  let mpdConfigs' = mpdModify ["audio_output", "sink"] (const "\"meloid_eq\"") mpdConfigs
-  runExceptT (Stored.save Stored.MPDConfigs mpdConfigs') >>= either panic pure
-
-  -- Restart MPD
-  runExceptT restartMPDServer >>= either panic pure
+  eqConfigs <- runExceptT (Stored.read Stored.EQConfigs) >>= either panic pure
+  log "Config is loaded successfully"
+  log "EQ configs are loaded successfully"
+  let EQConfigValue presets = eqConfigs
+      initialEQ = Map.findWithDefault (EQConfigSpecs $ replicate (length eqFrequencies) 0) (configs ^. cvEq) presets
+  runExceptT (startEQBridge initialEQ) >>= either (panic . ("Failed to start EQ bridge: " <>)) (const $ pure ())
 
   -- Get network status
   (socket, ip, port) <- runExceptT getMPDSocket >>= either panic pure
+  mounts <-
+    withMPD ip port MPD.listMounts >>= \case
+      Right values -> pure values
+      Left err -> warn ("Failed to query MPD mounts: " <> show err) >> pure []
+  forM_ mounts $ \(mount, storage) ->
+    log $ "Detected MPD mount " <> show mount <> ": " <> storage
+  runExceptT routeMPDToEQ >>= either (warn . ("Failed to route MPD: " <>)) (const $ pure ())
   log $
     "Detected MPD running on socket: "
       <> unlines
@@ -158,6 +144,7 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
           >> pure Nothing
       SignalQuit -> do
         atomically $ writeTVar spectrumEnabled False
+        liftIO stopEQBridge
         res <- Just <$> withMPD ip port MPD.stop
         postEvent Halt
         pure res
@@ -174,11 +161,8 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
             pure Nothing
       MPDOperation op ->
         Just . void <$> withMPD ip port (sequence op)
-      UpdateEQId eqId -> do
-        updateModuleEQId PipeWire eqId
-        runExceptT
-          (restartAudioServer PipeWire)
-          >>= either panic pure
+      ApplyEQ config -> do
+        runExceptT (applyEQ config) >>= either (log . ("Failed to apply EQ: " <>)) (const $ pure ())
         pure Nothing
       TriggerSpectrum enabled -> do
         atomically $ writeTVar spectrumEnabled enabled
@@ -213,14 +197,12 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
               UpdateConfig $
                 ConfigSt
                   { _csVolume = fromMaybe 0 vol
-                  , _csMusicDir = fromMaybe "" musicDir
+                  , _csMusicMounts = mounts
                   , _csAllPlaylists = Vec.fromList playlists
                   , _csAllDirs = Vec.fromList (fmap MPD.toString dirs)
                   , _csAllAlbums = Vec.fromList albums
                   , _csConfigs = configs
                   , _csEQConfigs = eqConfigs
-                  , _csMPDConfigs = mpdConfigs'
-                  , _csMPDConfigsBackup = mpdConfigs
                   }
         either (pure . Just . Left) (const $ pure Nothing) result
 
@@ -234,6 +216,8 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
   panic s = logEv evChan Error "MPD" s >> throwIO ThreadKilled
 
   log = logEv evChan Info "MPD"
+
+  warn = logEv evChan Warn "MPD"
 
   trace :: IO a -> IO a
   trace m =
@@ -249,21 +233,3 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
       Right res -> pure res
 
   postEvent = writeBChan evChan
-
-  loadEQConfigs = do
-    _ <- Stored.path (Stored.EQConfigs "default")
-    eqDir <- liftIO $ (</> "eq") <$> Stored.configDir
-    eqFiles <- liftIO $ listDirectory eqDir
-    let eqIds =
-          sort
-            [ reverse (drop 4 (reverse file))
-            | file <- eqFiles
-            , ".txt" `isSuffixOf` file
-            ]
-    Map.fromList
-      <$> forM
-        eqIds
-        ( \eqId -> do
-            config <- Stored.read (Stored.EQConfigs eqId)
-            pure (eqId, config)
-        )

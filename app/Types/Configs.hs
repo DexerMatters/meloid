@@ -9,57 +9,51 @@ module Types.Configs (
   StoredConfigs (..),
   Configs (..),
   EQConfigs (..),
-  MPDConfigs (..),
-  mpdMusicDirectory,
   imageCacheDir,
   configDir,
+  saveWithPanic,
 ) where
 
+import Brick qualified as B
 import Control.Exception
-import Control.Monad (filterM, when)
+import Control.Monad (filterM, forM, forM_, when)
 import Control.Monad.Except
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson qualified as JSON
 import Data.ByteString.Lazy.Char8 qualified as BL8
-import Data.Foldable (traverse_)
-import Data.List (dropWhileEnd, sort)
-import Data.Maybe (listToMaybe)
+import Data.List (dropWhileEnd, isSuffixOf, sort)
+import Data.Map qualified as Map
 import Language.Haskell.TH.Syntax (addDependentFile, lift, runIO)
 import Paths_meloid qualified as Paths
 import System.Directory
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
-import System.FilePath (isAbsolute, isRelative, normalise, takeDirectory, takeFileName, (</>))
+import System.FilePath (dropExtension, isRelative, takeDirectory, takeFileName, (</>))
 import System.Process (readProcessWithExitCode)
+import Types (MName, logReqError)
+import Types.Model (St)
 import Types.Schemas
 import Types.Schemas qualified as S
-import Utils (replace)
 
 {- | A class for storing configuration files.
 This class is responsible for determining the location,
 reading, and saving configuration files.
 -}
-class
-  (S.ToString (Repr a), S.FromString (Repr a)) =>
-  StoredConfigs a
-  where
+class StoredConfigs a where
   type Repr a
   path :: a -> ExceptT String IO FilePath
   read :: a -> ExceptT String IO (Repr a)
-  read selector = do
-    file <- path selector
-    content <- liftIO $ readFile file
-    liftEither $ S.fromString content
   save :: a -> Repr a -> ExceptT String IO ()
-  save selector value = do
-    file <- path selector
-    liftIO $ writeFile file (S.toString value)
 
 data Configs = Configs
 
-data EQConfigs = EQConfigs String
+data EQConfigs = EQConfigs
 
-data MPDConfigs = MPDConfigs
+saveWithPanic :: (StoredConfigs a) => a -> Repr a -> B.EventM (MName St) St Bool
+saveWithPanic selector value =
+  (liftIO . runExceptT $ save selector value) >>= \case
+    Right () -> pure True
+    Left err -> logReqError "save" err >> pure False
 
 {- | Prepare the configuration directory.
 The directory is responsible for storing configuration files.
@@ -93,6 +87,11 @@ instance StoredConfigs Configs where
          )
     pure file
 
+  read selector = do
+    file <- path selector
+    content <- liftIO $ readFile file
+    liftEither $ S.fromString content
+
   save _ value = do
     file <- path Configs
     helper <- liftIO $ Paths.getDataFileName ("tools" </> "update_config_yaml.mjs")
@@ -116,7 +115,7 @@ instance StoredConfigs Configs where
 instance StoredConfigs EQConfigs where
   type Repr EQConfigs = EQConfigValue
 
-  path (EQConfigs eqId) = ExceptT $ do
+  path _ = ExceptT $ do
     dir <- configDir
     let eqDir = dir </> "eq"
     createDirectoryIfMissing True eqDir
@@ -133,94 +132,30 @@ instance StoredConfigs EQConfigs where
              lift content
          )
 
-    case eqConfigFileName eqId of
-      Nothing -> pure $ Left $ "Invalid EQ config ID: " <> show eqId
-      Just name -> do
-        let file = eqDir </> name
-        doesFileExist file >>= \case
-          True -> pure $ Right file
-          False -> pure $ Left ("EQ file not found: " <> file)
+    pure $ Right defaultFile
 
-instance StoredConfigs MPDConfigs where
-  type Repr MPDConfigs = MPDConfigValue
+  read _ = do
+    defaultFile <- path EQConfigs
+    let eqDir = takeDirectory defaultFile
+    entries <- liftIO $ sort <$> listDirectory eqDir
+    files <- liftIO $ filterM (doesFileExist . (eqDir </>)) entries
+    EQConfigValue . Map.fromList
+      <$> forM
+        [ file | file <- files, ".txt" `isSuffixOf` file ]
+        ( \file -> do
+            content <- liftIO $ readFile (eqDir </> file)
+            config <- liftEither $ S.fromString content
+            pure (dropExtension file, config)
+        )
 
-  path _ = ExceptT $ do
-    homeDir <- getHomeDirectory
-    cfgDir <- getXdgDirectory XdgConfig "mpd"
-    let candidates = [cfgDir </> "mpd.conf", homeDir </> ".mpdconf", "/etc/mpd.conf"]
-    filterM doesFileExist candidates >>= \case
-      file : _ -> pure $ Right file
-      [] ->
-        pure . Left $
-          "MPD config file not found. Checked: " <> unwords candidates
-
-  read _ = readMPDConfigs
-
-  save _ (MPDConfigValue files) = traverse_ saveMPDConfigFile files
-
--- | Load the root MPD config and every config reached through `include`.
-readMPDConfigs :: ExceptT String IO MPDConfigValue
-readMPDConfigs = do
-  homeDir <- liftIO getHomeDirectory
-  root <- path MPDConfigs
-  MPDConfigValue <$> collect homeDir [] [root]
- where
-  collect _ _ [] = pure []
-  collect homeDir seen (file : rest)
-    | file `elem` seen = collect homeDir seen rest
-    | otherwise = do
-        config@(MPDConfigValue files) <- readMPDConfigFile file
-        includes <-
-          liftIO $
-            concat
-              <$> mapM
-                (resolveInclude homeDir (takeDirectory file))
-                (mpdGet ["include"] config)
-        (files <>) <$> collect homeDir (file : seen) (includes <> rest)
-
--- | Resolve the first configured music directory across loaded MPD files.
-mpdMusicDirectory :: MPDConfigValue -> IO (Maybe FilePath)
-mpdMusicDirectory config = do
-  homeDir <- getHomeDirectory
-  pure . listToMaybe $
-    [ expandMPDPath homeDir directory
-    | directory <- mpdGet ["music_directory"] config
-    ]
-
-readMPDConfigFile :: FilePath -> ExceptT String IO MPDConfigValue
-readMPDConfigFile file = do
-  content <-
-    ExceptT $
-      tryJust @IOException (Just . displayException) (readFile file)
-  liftEither $ parseMPDConfig file content
-
-saveMPDConfigFile :: (FilePath, [MPDConfigLine]) -> ExceptT String IO ()
-saveMPDConfigFile (file, lines') = do
-  if null file
-    then throwError "Cannot save an MPD config without a source path"
-    else liftIO $ writeFile file (renderMPDConfig $ MPDConfigValue [(file, lines')])
-
-resolveInclude :: FilePath -> FilePath -> String -> IO [FilePath]
-resolveInclude homeDir baseDir rawPath = do
-  let path' =
-        normalise $
-          case expandMPDPath homeDir rawPath of
-            absolute | isAbsolute absolute -> absolute
-            relative -> baseDir </> relative
-  doesFileExist path' >>= \case
-    True -> pure [path']
-    False ->
-      doesDirectoryExist path' >>= \case
-        False -> pure []
-        True -> (fmap (path' </>) . sort) <$> listDirectory path'
-
-expandMPDPath :: FilePath -> FilePath -> FilePath
-expandMPDPath homeDir path' =
-  normalise $
-    case replace "${HOME}" homeDir $ replace "$HOME" homeDir path' of
-      "~" -> homeDir
-      '~' : '/' : rest -> homeDir </> rest
-      other -> other
+  save _ (EQConfigValue configs) = do
+    defaultFile <- path EQConfigs
+    files <-
+      forM (Map.toList configs) $ \(eqId, config) ->
+        case eqConfigFileName eqId of
+          Nothing -> throwError $ "Invalid EQ config ID: " <> show eqId
+          Just name -> pure (takeDirectory defaultFile </> name, config)
+    liftIO $ forM_ files $ \(file, config) -> writeFile file (S.toString config)
 
 -- | Prepare the image cache directory used by every image source.
 imageCacheDir :: IO FilePath

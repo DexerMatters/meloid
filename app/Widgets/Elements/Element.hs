@@ -119,10 +119,10 @@ drawElement rootPath st = go True rootPath
 -- | Draw the equalizer's list and active editor side by side.
 drawEqualizerPanel :: ElementPath -> St -> Widget (MName St)
 drawEqualizerPanel _ st
-  | Map.null (st ^. stConfig . csEQConfigs) = W.emptyWidget
+  | EQConfigValue configs <- st ^. stConfig . csEQConfigs, Map.null configs = W.emptyWidget
 drawEqualizerPanel path st =
   W.hBox
-    [ W.hLimit 11 $ drawNamed st (EQConfigList path)
+    [ W.hLimit 14 $ drawNamed st (EQConfigList path)
     , case st ^. stIsTriggered (mName $ EQSwitch path) of
         False -> drawNamed st (EQCurveVisualizer path)
         True -> W.padLeft (W.Pad 1) $ drawNamed st (EQGainBarsViewport path)

@@ -14,7 +14,7 @@ import Brick.Types (
  )
 import Brick.Widgets.Edit qualified as E
 import Compat.Image qualified as Image
-import Compat.Software (spectrumUpdatingThread)
+import Compat.Software (spectrumUpdatingThread, stopEQBridge)
 import Compat.Term qualified as Term
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (newTVarIO)
@@ -26,7 +26,6 @@ import Data.Vector qualified as Vec
 import Graphics.Vty qualified as V
 import Graphics.Vty.CrossPlatform qualified as Vty
 import Handle
-import Lens.Micro ((^.))
 import Lens.Micro.Mtl
 import Sys qualified
 import Types
@@ -72,14 +71,14 @@ main = do
         stChannel .= Just requestChan
         stCurrentView .= Just MainView
         stLastView .= Just MainView
-  finalSt <-
+  void $
     M.customMain
       vty
       mkVty
       (Just chan)
       (app imageService (T.themeToAttrMap defaultTheme))
       st
-  handleInterrupt (finalSt ^. stConfig)
+  stopEQBridge
 
 -- | The initial state
 defaultSt :: St
@@ -91,12 +90,14 @@ defaultSt =
           }
     , _stPressed = Nothing
     , _stLastLeftClick = Nothing
-    , _stTriggeredNames = Set.empty
+    , _stTriggerItem = Set.empty
+    , _stUnsavedEQ = Nothing
     , _stTabStates = Map.empty
     , _stSongProgressPreview = Nothing
     , _stLastRightPressed = Nothing
     , _stCurrentView = Nothing
     , _stLastView = Nothing
+    , _stSelectedEQConfig = Nothing
     , _stDialog = Nothing
     , _stDialogView = Nothing
     , _stMenu = MenuSt [] placeholderName (B.Location (0, 0)) (0, 0)
@@ -107,7 +108,7 @@ defaultSt =
     , _stConfig =
         ConfigSt
           { _csVolume = 0
-          , _csMusicDir = ""
+          , _csMusicMounts = []
           , _csAllPlaylists = Vec.empty
           , _csAllDirs = Vec.empty
           , _csAllAlbums = Vec.empty
@@ -118,9 +119,7 @@ defaultSt =
                 , _cvEq = "default"
                 , _cvLayout = placeholderLayout
                 }
-          , _csEQConfigs = Map.empty
-          , _csMPDConfigs = MPDConfigValue []
-          , _csMPDConfigsBackup = MPDConfigValue []
+          , _csEQConfigs = EQConfigValue Map.empty
           }
     , _stPlaying =
         PlayingSt

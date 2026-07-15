@@ -9,6 +9,8 @@ module Widgets.Lists (
   SongInfoList (..),
   EQConfigList (..),
   EQConfigEntry (..),
+  stCurrentEQ,
+  stCurrentEQIndex,
   MenuEntry (..),
   drawMenuLayer,
 ) where
@@ -22,6 +24,7 @@ import Data.Bool (bool)
 import Data.List (intercalate)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Time qualified as Time
 import Data.Vector qualified as Vec
 import Lens.Micro
@@ -49,8 +52,23 @@ data SongInfoList = SongInfoList ElementPath
 data EQConfigList = EQConfigList ElementPath
 
 data EQConfigEntry = EQConfigEntry ElementPath Int
+  deriving (Show)
 
 data MenuEntry = MenuEntry Int
+
+stCurrentEQ :: SimpleGetter St EQConfigSpecs
+stCurrentEQ = to $ \st ->
+  case st ^. stConfig . csEQConfigs of
+    EQConfigValue configs ->
+      let selected = fromMaybe (st ^. stConfig . csConfigs . cvEq) (st ^. stSelectedEQConfig)
+       in Map.findWithDefault (EQConfigSpecs $ replicate (length eqFrequencies) 0) selected configs
+
+stCurrentEQIndex :: SimpleGetter St (Maybe Int)
+stCurrentEQIndex = to $ \st ->
+  case st ^. stConfig . csEQConfigs of
+    EQConfigValue configs ->
+      let selected = fromMaybe (st ^. stConfig . csConfigs . cvEq) (st ^. stSelectedEQConfig)
+       in Map.lookupIndex selected configs
 
 albumThumbnailHeight :: Int
 albumThumbnailHeight = snd albumThumbnailSize
@@ -180,33 +198,45 @@ instance Drawable St SongInfoList where
 
 instance Drawable St EQConfigList where
   draw (EQConfigList path) st =
-    viewportWithBar st (mName $ EQConfigList path) $
-      W.vBox $
-        map
-          (drawNamed st . EQConfigEntry path)
-          [0 .. Map.size (st ^. stConfig . csEQConfigs) - 1]
+    W.hBox
+      [ viewportWithBar st (mName $ EQConfigList path) $
+          W.vBox $
+            map
+              (drawNamed st . EQConfigEntry path)
+              [0 .. Map.size configs - 1]
+      , B.withAttr (attrName "text") . W.hLimit 1 $ W.fill '¦'
+      ]
+   where
+    EQConfigValue configs = st ^. stConfig . csEQConfigs
   onMouseScrollUp (EQConfigList path) = Just $ scrollViewportBy (mName $ EQConfigList path) (-1)
   onMouseScrollDown (EQConfigList path) = Just $ scrollViewportBy (mName $ EQConfigList path) 1
   parent (EQConfigList path) = Just . ParentName . mName $ ElementNode path
+  variant :: EQConfigList -> Int
   variant (EQConfigList path) = pathVariant path
 
 instance Drawable St EQConfigEntry where
   draw (EQConfigEntry path i) st =
     drawGeneralButton st (mName $ EQConfigEntry path i) $
-      strClippedWithEllipsis (tip <> text)
+      with $
+        W.strWrap (tip <> text <> star)
    where
     tip
-      | st ^. stCurrentEQIndex == Just i = "> "
+      | st ^. stSelectedEQConfig == Just text = "> "
       | otherwise = ""
     -- SAFETY: EQConfigEntry is indexed within the length of EQConfigs
-    text = st ^. stConfig . csEQConfigs . to (fst . (Map.elemAt i))
+    text = fst $ Map.elemAt i configs
+    star
+      | st ^. stUnsavedEQ == Just i = "*"
+      | otherwise = ""
+    with
+      | st ^. stUnsavedEQ == Just i = B.withDefAttr (attrName "unsaved")
+      | otherwise = id
+    EQConfigValue configs = st ^. stConfig . csEQConfigs
   variant (EQConfigEntry _ i) = i
   parent (EQConfigEntry path _) = Just (ParentName $ mName $ EQConfigList path)
   onMouseLeftUp (EQConfigEntry _ i) = Just $ \_ -> do
-    eqs <- use $ stConfig . csEQConfigs
-    let newId = fst $ Map.elemAt i eqs
-    stConfig . csConfigs . cvEq .= newId
-    pure () -- TODO: Restarting services is still unstable
+    EQConfigValue configs <- use $ stConfig . csEQConfigs
+    stSelectedEQConfig .= Just (fst $ Map.elemAt i configs)
 
 drawMenuLayer :: St -> Widget (MName St)
 drawMenuLayer st
