@@ -11,8 +11,7 @@ module Compat.Software (
   routeMPDToEQ,
   spectrumUpdatingThread,
   extractExtraInfo,
-  getMPDProcessId,
-  getMPDSocket,
+  getMPDEndpoint,
 ) where
 
 import Brick qualified as B
@@ -26,8 +25,8 @@ import Control.Monad.Trans.Except
 import Data.Aeson qualified as JSON
 import Data.Aeson.KeyMap qualified as JSON
 import Data.ByteString.Lazy.Char8 qualified as BL8
-import Data.List (isPrefixOf, sortOn, stripPrefix, uncons)
-import Data.Maybe (catMaybes, listToMaybe)
+import Data.List (isPrefixOf, sortOn, stripPrefix)
+import Data.Maybe (listToMaybe)
 import Data.Scientific qualified as Sci
 import Data.Text qualified as Txt
 import Data.Vector qualified as Vec
@@ -36,20 +35,13 @@ import GHC.IO.Exception (ExitCode (..))
 import Lens.Micro.Mtl
 import Network.MPD qualified as MPD
 import System.Directory
+import System.Environment (lookupEnv)
 import System.FilePath (isAbsolute, isRelative, makeRelative, normalise, splitDirectories, (</>))
 import System.Process qualified as Sys
 import Text.Printf (printf)
-import Text.Read (readEither, readMaybe)
+import Text.Read (readMaybe)
 import Types
 import Utils
-
-data SocketType = IPv4 | IPv6
-  deriving (Eq, Show)
-
-instance Read SocketType where
-  readsPrec _ "IPv4" = [(IPv4, "")]
-  readsPrec _ "IPv6" = [(IPv6, "")]
-  readsPrec _ _ = []
 
 -- | Publish the bridge's post-EQ spectrum only while the UI needs it.
 spectrumUpdatingThread :: BChan Event -> TVar Bool -> IO ()
@@ -70,26 +62,20 @@ readProcess cmd args input =
     when (code /= ExitSuccess) $ throwE $ printf "%s failed with exit code %s: %s" cmd (show code) stderr
     pure stdout
 
--- | Get the MPD process ID
-getMPDProcessId :: ExceptT String IO Int
-getMPDProcessId = do
-  res <- readProcess "systemctl" ["--user", "show", "mpd.service", "-p", "MainPID", "--value"] ""
-  when (null res) $ throwE "Failed to get MPD process ID"
-  ExceptT $ pure $ readEither res
-
--- | Get the MPD socket
-getMPDSocket :: ExceptT String IO (SocketType, String, String)
-getMPDSocket = do
-  id' <- getMPDProcessId
-  res <-
-    catMaybes
-      . fmap uncons
-      . lines
-      <$> readProcess "lsof" ["-Pan", "-a", "-p", show id', "-i", "-Ftn"] ""
-  socket <- maybe (throwE "Failed to get MPD socket") pure $ lookup 'n' res
-  ipType <- maybe (throwE "Failed to get MPD IP type") pure $ lookup 't' res
-  let (ip, port) = break (== ':') socket
-  pure (read ipType, ip, drop 1 port)
+-- | Resolve MPD's standard client endpoint without inspecting daemon sockets.
+getMPDEndpoint :: IO (String, String)
+getMPDEndpoint = do
+  host <- endpointValue "MPD_HOST" "127.0.0.1"
+  port <- endpointValue "MPD_PORT" "6600"
+  pure (host, port)
+ where
+  endpointValue name fallback = do
+    value <- lookupEnv name
+    pure $ maybe fallback nonEmpty value
+   where
+    nonEmpty value
+      | null value = fallback
+      | otherwise = value
 
 -- | Start the private PipeWire filter and load the saved EQ once.
 startEQBridge :: EQConfigSpecs -> ExceptT String IO ()

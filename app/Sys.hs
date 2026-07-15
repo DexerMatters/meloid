@@ -82,8 +82,7 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
       initialEQ = Map.findWithDefault (EQConfigSpecs $ replicate (length eqFrequencies) 0) (configs ^. cvEq) presets
   runExceptT (startEQBridge initialEQ) >>= either (panic . ("Failed to start EQ bridge: " <>)) (const $ pure ())
 
-  -- Get network status
-  (socket, ip, port) <- runExceptT getMPDSocket >>= either panic pure
+  (ip, port) <- liftIO getMPDEndpoint
   mounts <-
     withMPD ip port MPD.listMounts >>= \case
       Right values -> pure values
@@ -92,10 +91,9 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
     log $ "Detected MPD mount " <> show mount <> ": " <> storage
   runExceptT routeMPDToEQ >>= either (warn . ("Failed to route MPD: " <>)) (const $ pure ())
   log $
-    "Detected MPD running on socket: "
+    "Using MPD endpoint: "
       <> unlines
-        [ "\n Type: " <> show socket
-        , " IP: " <> ip
+        [ "\n Host: " <> ip
         , " Port: " <> port
         ]
 
