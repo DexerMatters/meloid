@@ -102,6 +102,7 @@ executable meloid
 
     -- Media packages
     libmpd,
+    network,
 
     -- Misc
     raw-strings-qq,

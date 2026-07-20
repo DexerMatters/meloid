@@ -231,16 +231,21 @@ int meloid_eq_spectrum(double *levels, size_t count) {
     return 0;
   double rate = atomic_load_explicit(&bridge.rate, memory_order_relaxed);
   rate = rate > 0 ? rate : 48000.0;
+  double windows[SPECTRUM_SAMPLES];
+  double window_sum = 0.0;
+  for (unsigned sample = 0; sample < SPECTRUM_SAMPLES; sample++) {
+    windows[sample] = 0.5 * (1.0 - cos(2.0 * M_PI * sample / (SPECTRUM_SAMPLES - 1)));
+    window_sum += windows[sample];
+  }
+
   for (unsigned band = 0; band < SPECTRUM_BANDS; band++) {
     double frequency = 30.0 * pow(18000.0 / 30.0, ((double) band + 0.5) / SPECTRUM_BANDS);
-    double real = 0.0, imaginary = 0.0, window_sum = 0.0;
+    double real = 0.0, imaginary = 0.0;
     for (unsigned sample = 0; sample < SPECTRUM_SAMPLES; sample++) {
-      double window = 0.5 * (1.0 - cos(2.0 * M_PI * sample / (SPECTRUM_SAMPLES - 1)));
       double phase = 2.0 * M_PI * frequency * sample / rate;
-      double value = atomic_load_explicit(&bridge.samples[(end - SPECTRUM_SAMPLES + sample) % SPECTRUM_SAMPLES], memory_order_relaxed) * window;
+      double value = atomic_load_explicit(&bridge.samples[(end - SPECTRUM_SAMPLES + sample) % SPECTRUM_SAMPLES], memory_order_relaxed) * windows[sample];
       real += value * cos(phase);
       imaginary += value * sin(phase);
-      window_sum += window;
     }
     double amplitude = 2.0 * sqrt(real * real + imaginary * imaginary) / window_sum;
     levels[band] = fmax(-90.0, 20.0 * log10(fmax(1.0e-9, amplitude)));

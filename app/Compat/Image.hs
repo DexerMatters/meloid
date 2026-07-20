@@ -19,6 +19,7 @@ module Compat.Image (
 import Brick
 import Brick.BChan (BChan, writeBChan)
 import Brick.Main qualified as M
+import Compat.Software (getMPDEndpoint)
 import Compat.Term
 import Compat.Term qualified as Term
 import Control.Concurrent (forkIO, threadDelay)
@@ -42,6 +43,7 @@ import Graphics.Vty.Output qualified as Output
 import Lens.Micro ((^.))
 import Lens.Micro.Mtl
 import Numeric (showHex)
+import Network.MPD qualified as MPD
 import System.Directory (doesFileExist, getTemporaryDirectory, removeFile, renameFile)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -485,8 +487,10 @@ sourceCacheName = (`showHex` "") . foldl step fnvOffset . BS.unpack . UTF8.fromS
 readImageBytes :: ImageSource -> ExceptT IOException IO BS.ByteString
 readImageBytes = \case
   ImageFile path -> ExceptT $ try $ BS.readFile path
-  MpdEmbeddedArt uri ->
-    runMpcBytes ["readpicture", uri] `catchE` \_ -> runMpcBytes ["albumart", uri]
+  MpdEmbeddedArt uri -> do
+    (host, port) <- liftIO getMPDEndpoint
+    let readArt request = ExceptT $ fmap (either (Left . userError) Right) $ request host port uri
+    readArt MPD.readPicture `catchE` const (readArt MPD.albumArt)
 
 renderImageBytes :: Term.ImageFormat -> ImageSize -> BS.ByteString -> ExceptT IOException IO RenderedImage
 renderImageBytes format size bytes = do
@@ -495,18 +499,6 @@ renderImageBytes format size bytes = do
     case format of
       Term.Symbols -> InlineSymbols (UTF8.toString rendered)
       _ -> TerminalGraphic format rendered
-
-runMpcBytes :: [String] -> ExceptT IOException IO BS.ByteString
-runMpcBytes args =
-  readRawProcess "mpc" args $ \case
-    (ExitSuccess, out, err)
-      | looksLikeMpcStatus out ->
-          throwE $ userError $ "mpc returned status text instead of image bytes: " <> UTF8.toString err
-      | otherwise -> pure out
-    (ExitFailure n, _, err) ->
-      throwE $ userError $ "mpc failed, exit " <> show n <> ": " <> UTF8.toString err
- where
-  looksLikeMpcStatus = BS.isPrefixOf (UTF8.fromString "volume:")
 
 chafaOutput :: Term.ImageFormat -> ImageSize -> BS.ByteString -> ExceptT IOException IO BS.ByteString
 chafaOutput format (w, h) bytes = do
