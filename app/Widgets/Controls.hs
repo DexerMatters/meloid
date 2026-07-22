@@ -11,11 +11,6 @@ module Widgets.Controls (
   PlayButton (..),
   RewindButton (..),
   ForwardButton (..),
-  OkButton (..),
-  SkipButton (..),
-  NextButton (..),
-  FinishButton (..),
-  PrevButton (..),
   ReverseOrderButton (..),
   ShuffleButton (..),
   ClearButton (..),
@@ -55,16 +50,6 @@ data PlayButton = PlayButton
 data RewindButton = RewindButton
 
 data ForwardButton = ForwardButton
-
-data OkButton = OkButton
-
-data SkipButton = SkipButton
-
-data NextButton = NextButton
-
-data FinishButton = FinishButton
-
-data PrevButton = PrevButton
 
 data ReverseOrderButton = ReverseOrderButton
 
@@ -247,35 +232,6 @@ instance Drawable St ForwardButton where
     sendRequest $ MPDOperation [MPD.next]
   parent _ = Just (ParentView MainView)
 
-instance Drawable St OkButton where
-  draw _ st = drawButton st (mName OkButton) "    OK    "
-  onMouseLeftUp _ = Just $ \_ -> closeDialog
-  parent _ = Just (ParentView SimpleDialog)
-
-instance Drawable St SkipButton where
-  draw _ st = drawButton st (mName SkipButton) "   SKIP   "
-  onMouseLeftUp _ = Just $ \_ -> do
-    closeDialog
-    stDialog .? dsPage .= 1
-  parent _ = Just (ParentView WelcomeDialog)
-
-instance Drawable St NextButton where
-  draw _ st = drawButton st (mName NextButton) "   NEXT   "
-  onMouseLeftUp _ = Just $ \_ -> stDialog .? dsPage %= (+ 1)
-  parent _ = Just (ParentView WelcomeDialog)
-
-instance Drawable St FinishButton where
-  draw _ st = drawButton st (mName FinishButton) "   FINISH   "
-  onMouseLeftUp _ = Just $ \_ -> do
-    closeDialog
-    stDialog .? dsPage .= 1
-  parent _ = Just (ParentView WelcomeDialog)
-
-instance Drawable St PrevButton where
-  draw _ st = drawButton st (mName PrevButton) "   PREV   "
-  onMouseLeftUp _ = Just $ \_ -> stDialog .? dsPage %= subtract 1
-  parent _ = Just (ParentView WelcomeDialog)
-
 instance Drawable St ReverseOrderButton where
   draw _ st = drawIconButton st (mName ReverseOrderButton) "↑↓"
   onMouseLeftUp _ = Just $ \_ -> do
@@ -340,7 +296,7 @@ instance Drawable St EQSaveButton where
   onMouseLeftUp _ = Just $ \_ -> do
     configs <- use (stConfig . csEQConfigs)
     saveWithPanic EQConfigs configs >>= \case
-      True -> stUnsavedEQ .= Nothing
+      True -> stUnsaved . usEQ .= Nothing
       False -> pure ()
 
   parent (EQSaveButton path) = Just . ParentName . mName $ ElementNode path
@@ -393,7 +349,7 @@ setEQGainBarValue bandIndex gain = do
     Just currentIx | currentIx < Map.size configs -> do
       let (currentId, EQConfigSpecs gains) = Map.elemAt currentIx configs
           updated = EQConfigSpecs $ zipWith updateGain [0 ..] gains
-      stUnsavedEQ .= Just currentIx
+      stUnsaved . usEQ .= Just currentIx
       stConfig . csEQConfigs %= \(EQConfigValue configs') ->
         EQConfigValue $ Map.insert currentId updated configs'
     _ -> pure ()
@@ -461,7 +417,7 @@ commitSongProgressPreview = do
 beginEQGainAdjustment :: Int -> EventM (MName St) St (FocusTransaction St)
 beginEQGainAdjustment bandIndex = do
   originalConfigs <- use (stConfig . csEQConfigs)
-  originalUnsaved <- use stUnsavedEQ
+  originalUnsaved <- use (stUnsaved . usEQ)
   pure $
     FocusTransaction
       { adjustFocus = \case
@@ -471,7 +427,7 @@ beginEQGainAdjustment bandIndex = do
       , commitFocusAdjustment = pure ()
       , cancelFocusAdjustment = do
           stConfig . csEQConfigs .= originalConfigs
-          stUnsavedEQ .= originalUnsaved
+          stUnsaved . usEQ .= originalUnsaved
       }
  where
   nudge delta =

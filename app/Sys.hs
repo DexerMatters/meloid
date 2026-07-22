@@ -15,17 +15,21 @@ import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.STM (TVar, atomically, writeTVar)
 import Control.Exception (AsyncException (ThreadKilled), SomeException, throwIO, try)
 import Control.Monad
-import Control.Monad.Except (ExceptT (ExceptT))
+import Control.Monad.Except (ExceptT (ExceptT), throwError)
 import Control.Monad.State (liftIO)
 import Control.Monad.Trans.Except (runExceptT)
+import Data.ByteString.Char8 qualified as B8
 import Data.Function (on)
 import Data.List
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Ord (Down (..))
+import Data.Time qualified as Time
 import Data.Vector qualified as Vec
 import Lens.Micro
 import Network.MPD qualified as MPD
+import Network.MPD.Core qualified as MPDCore
 import Types hiding (panic)
 import Types.Configs qualified as Stored
 import Prelude hiding (log)
@@ -43,6 +47,31 @@ albumGroupKey song =
   ( NonEmpty.head $ songMeta MPD.Artist song
   , NonEmpty.head $ songMeta MPD.Album song
   )
+
+-- | libmpd's typed 'listPlaylists' result drops MPD's 'Last-Modified'
+-- field. Use its public raw-command escape hatch so dated playlists can be
+-- presented newest first. Older MPD versions may omit that optional field.
+listStoredPlaylists :: MPD.MPD [(MPD.PlaylistName, Maybe Time.UTCTime)]
+listStoredPlaylists = do
+  response <- MPDCore.send "listplaylists"
+  either (throwError . MPD.Unexpected) pure $ parseStoredPlaylists response
+
+parseStoredPlaylists :: [B8.ByteString] -> Either String [(MPD.PlaylistName, Maybe Time.UTCTime)]
+parseStoredPlaylists = fmap reverse . foldM addField []
+ where
+  addField playlists line
+    | Just name <- field "playlist: " line = Right $ (MPD.PlaylistName name, Nothing) : playlists
+    | Just value <- field "Last-Modified: " line = addModified value playlists
+    | otherwise = Right playlists
+
+  addModified value ((name, _) : playlists) =
+    maybe
+      (Left $ "Invalid playlist modification time: " <> B8.unpack value)
+      (\modified -> Right $ (name, Just modified) : playlists)
+      (Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" (B8.unpack value) :: Maybe Time.UTCTime)
+  addModified _ [] = Left "Last-Modified appeared before a playlist name"
+
+  field prefix = B8.stripPrefix (B8.pack prefix)
 
 {- | The loop that updates the song progress every
 `songProgressInterval`
@@ -172,8 +201,8 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
         result <- runExceptT $ do
           vol <- ExceptT $ withMPD ip port $ MPD.status <&> MPD.stVolume
           all' <- ExceptT $ withMPD ip port $ MPD.listAllInfo ""
+          storedPlaylists <- ExceptT $ withMPD ip port listStoredPlaylists
           let songs = [song | MPD.LsSong song <- all']
-              plNames = [playlist | MPD.LsPlaylist playlist <- all']
               dirs = [dir' | MPD.LsDirectory dir' <- all']
               albums' = groupBy ((==) `on` albumGroupKey) $ sortOn albumGroupKey songs
               albums =
@@ -188,8 +217,12 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
                       }
                   Nothing ->
                     defaultAlbum
-          plSongs <- mapM (ExceptT . withMPD ip port . MPD.listPlaylistInfo) plNames
-          let playlists = zipWith Playlist plNames plSongs
+          plSongs <- mapM (ExceptT . withMPD ip port . MPD.listPlaylistInfo . fst) storedPlaylists
+          let playlists =
+                sortOn (Down . playlistLastModified)
+                  [ Playlist name modified (Vec.fromList songs')
+                  | ((name, modified), songs') <- zip storedPlaylists plSongs
+                  ]
           liftIO $
             postEvent $
               UpdateConfig $

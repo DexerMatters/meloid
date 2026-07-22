@@ -3,6 +3,7 @@ module Types (
   module Types.Identity,
   module Types.Core,
   module Types.Focus,
+  module Types.Dialog,
   module Types.Model,
   module Types.Helpers,
   module Types.Actions,
@@ -13,6 +14,7 @@ module Types (
 
 import Types.Actions
 import Types.Core
+import Types.Dialog
 import Types.Focus
 import Types.Helpers
 import Types.Identity

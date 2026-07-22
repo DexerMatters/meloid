@@ -8,6 +8,8 @@ it through the view and widget code.
 module Types.Actions (
   panic,
   closeDialog,
+  openDialog,
+  openPagedDialog,
   openSimpleDialog,
   switchView,
   switchMode,
@@ -20,17 +22,19 @@ module Types.Actions (
   closeMenu,
 ) where
 
-import Brick (Extent (..), Location (..))
+import Brick (Extent (..), Location (..), Widget)
 import Brick.BChan (writeBChan)
 import Brick.Main qualified as M
 import Brick.Types (EventM)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Set qualified as Set
+import Data.List.NonEmpty (NonEmpty)
 import Graphics.Vty qualified as V
 import Lens.Micro (to)
 import Lens.Micro.Mtl
 import Types.Core
+import Types.Dialog
 import Types.Identity (MName, ViewName, placeholderName)
 import Types.Model
 
@@ -38,17 +42,26 @@ import Types.Model
 panic :: EventM (MName St) St ()
 panic = stPanic .= True
 
--- | Close the active dialog and clear its view marker.
+-- | Close the active dialog.
 closeDialog :: EventM (MName St) St ()
-closeDialog = do
-  stDialog .= Nothing
-  stDialogView .= Nothing
+closeDialog = stDialog .= Nothing
 
--- | Open a simple text dialog.
-openSimpleDialog :: ViewName -> String -> EventM (MName St) St ()
-openSimpleDialog dialogName text = do
-  stDialog .= Just (DialogSt 0 text)
-  stDialogView .= Just dialogName
+-- | Open a dialog and reset its page position.
+openDialog :: Dialog St -> EventM (MName St) St ()
+openDialog = (stDialog .=) . Just . dialogState
+
+-- | Open a paged dialog from a title and the widgets on each page.
+openPagedDialog :: String -> NonEmpty [Widget (MName St)] -> EventM (MName St) St ()
+openPagedDialog title = openDialog . PagedDialog title
+
+-- | Open a confirmation dialog with programmable NO and YES actions.
+openSimpleDialog ::
+  String ->
+  Widget (MName St) ->
+  EventM (MName St) St () ->
+  EventM (MName St) St () ->
+  EventM (MName St) St ()
+openSimpleDialog title widget noAction = openDialog . SimpleDialog title widget noAction
 
 -- | Switch to a different top-level view.
 switchView :: ViewName -> EventM (MName St) St ()

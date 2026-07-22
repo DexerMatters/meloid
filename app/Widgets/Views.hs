@@ -12,13 +12,10 @@ themselves in the context of child widgets.
 module Widgets.Views (
   DebugViewport (..),
   drawView,
-  drawDialogView,
   viewFocusChildren,
-  dialogFocusChildren,
 ) where
 
 import Brick
-import Brick.Widgets.Center qualified as C
 import Brick.Widgets.Core qualified as W
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Maybe (fromMaybe)
@@ -46,7 +43,6 @@ drawView MainView st =
     , drawBottomBar st
     ]
 drawView DebugView st = drawNamed st DebugViewport
-drawView _ _ = W.emptyWidget
 
 -- | The document-order focus children for each top-level view.  Layout
 -- elements expand themselves recursively, so this remains independent of a
@@ -61,85 +57,6 @@ viewFocusChildren MainView _ =
   , mName (ElementName [])
   ]
 viewFocusChildren DebugView _ = [mName DebugViewport]
-viewFocusChildren _ _ = []
-
-drawDialogView :: ViewName -> St -> Widget (MName St)
-drawDialogView WelcomeDialog st =
-  drawWelcomeDialog st
-drawDialogView SimpleDialog st =
-  drawSimpleDialog st
-drawDialogView _ _ = W.emptyWidget
-
-dialogFocusChildren :: ViewName -> St -> [MName St]
-dialogFocusChildren WelcomeDialog st =
-  skipButton <> previousButton <> nextButton
- where
-  page = fromMaybe 1 (st ^? stDialog .? dsPage)
-  skipButton
-    | page < 3 = [mName SkipButton]
-    | otherwise = []
-  previousButton
-    | page > 1 = [mName PrevButton]
-    | otherwise = []
-  nextButton
-    | page < 3 = [mName NextButton]
-    | otherwise = [mName FinishButton]
-dialogFocusChildren SimpleDialog _ = [mName OkButton]
-dialogFocusChildren _ _ = []
-
-drawWelcomeDialog :: St -> Widget (MName St)
-drawWelcomeDialog st =
-  W.withAttr (attrName "dialog") $
-    W.padAll 2 . W.vBox $
-      [ C.hCenter $ W.str "Notice"
-      , C.hCenter pageWidget
-      , W.padTop (W.Pad 2) $
-          W.hBox
-            [ skipButton
-            , W.padLeft W.Max $
-                W.hBox
-                  [ prevButton
-                  , W.padLeft (W.Pad 1) nextOrFinish
-                  ]
-            ]
-      ]
- where
-  page = fromMaybe 1 (st ^? stDialog .? dsPage)
-
-  prevButton
-    | page > 1 = drawNamed st PrevButton
-    | otherwise = W.emptyWidget
-
-  skipButton
-    | page < 3 = drawNamed st SkipButton
-    | otherwise = W.emptyWidget
-
-  nextOrFinish
-    | page < 3 = drawNamed st NextButton
-    | otherwise = drawNamed st FinishButton
-
-  pageWidget
-    | page == 1 =
-        W.str $
-          unlines
-            [ "This is a simple video player made in Haskell."
-            , "It aims to be fast, simple, and easy to use."
-            ]
-    | page == 2 =
-        W.str $
-          unlines
-            [ "This is the next page."
-            ]
-    | otherwise = W.str "\nUnknown page"
-
-drawSimpleDialog :: St -> Widget (MName St)
-drawSimpleDialog st =
-  W.withAttr (attrName "dialog") $
-    W.padAll 2 . W.vBox $
-      [ C.hCenter $ W.str "Welcome to Meloid"
-      , C.hCenter $ W.strWrap (st ^. stDialog .? dsText)
-      , W.padTop (W.Pad 2) . W.padLeft W.Max $ drawNamed st OkButton
-      ]
 
 instance Drawable St DebugViewport where
   draw _ st =

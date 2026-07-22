@@ -11,6 +11,7 @@ module Handle (
 ) where
 
 import Brick qualified as B
+import Brick qualified as W
 import Brick.Main as M
 import Brick.Types (
   BrickEvent (..),
@@ -35,8 +36,9 @@ import Lens.Micro
 import Lens.Micro.Mtl
 import Network.MPD qualified as MPD
 import Types
-import Widgets.Image (imageScene)
+import Types.Configs (Configs (..), saveWithPanic)
 import Widgets.Focus (dismissKeyboardFocus, handleFocusEvent, reconcileFocus)
+import Widgets.Image (imageScene)
 import Widgets.Layer (activeOccluderNames)
 import Widgets.Lists (MenuEntry (..))
 
@@ -60,8 +62,9 @@ handleEvent imageService ev = do
     AppEvent _ -> pure ()
     _ -> queueMainViewRefresh imageService
 
--- | Pointer input leaves keyboard navigation without stealing the ring for
--- the clicked widget. Blank terminal cells arrive as raw Vty mouse events.
+{- | Pointer input leaves keyboard navigation without stealing the ring for
+the clicked widget. Blank terminal cells arrive as raw Vty mouse events.
+-}
 dismissFocusForPointer :: BrickEvent (MName St) Event -> EventM (MName St) St ()
 dismissFocusForPointer = \case
   MouseDown{} -> dismissKeyboardFocus
@@ -125,7 +128,7 @@ handleGlobalEvent imageService = \case
   -- Submit command only while its editor owns input.  In normal mode Enter is
   -- routed to the keyboard-focus controller instead.
   VtyEvent (V.EvKey V.KEnter []) ->
-    (,) <$> use stMode <*> use stDialogView >>= \case
+    (,) <$> use stMode <*> use stDialog >>= \case
       (CommandMode, Nothing) -> do
         menuOpen <- use (stMenu . msWidgets . to (not . null))
         if menuOpen
@@ -135,11 +138,34 @@ handleGlobalEvent imageService = \case
   _ ->
     pure False
  where
-  handleQuitShortcut = do
-    isPanicked <- use stPanic
-    if isPanicked
-      then M.halt
-      else sendRequest SignalQuit
+  handleQuitShortcut =
+    use stPanic >>= \case
+      True -> M.halt
+      False ->
+        use stDialog >>= \case
+          Just _ -> pure ()
+          Nothing ->
+            use (stUnsaved . usLayout) >>= \case
+              True -> do
+                closeMenu
+                openSimpleDialog
+                  "Save layout?"
+                  ( W.strWrap
+                      "You have unsaved layout changes. Save them before quitting?"
+                  )
+                  quitWithoutSaving
+                  saveLayoutAndQuit
+              False -> requestQuit
+
+  quitWithoutSaving = stUnsaved . usLayout .= False >> requestQuit
+
+  saveLayoutAndQuit = do
+    config <- use (stConfig . csConfigs)
+    saveWithPanic Configs config >>= \case
+      True -> stUnsaved . usLayout .= False >> requestQuit
+      False -> pure ()
+
+  requestQuit = sendRequest SignalQuit
 
   submitCommandEdit =
     use (stEdits . esCommand . to (TZ.currentLine . E.editContents)) >>= execCmd
@@ -199,6 +225,11 @@ handleAppEvent imageService = \case
   -- accquired when the program starts
   UpdateConfig config -> do
     stConfig .= config
+    use stSelectedPlaylist >>= \case
+      Just selected
+        | not $ any ((== selected) . playlistName) (config ^. csAllPlaylists) ->
+            stSelectedPlaylist .= Nothing
+      _ -> pure ()
     stSelectedEQConfig .= Just (config ^. csConfigs . cvEq)
     queueMainViewRefresh imageService
   -- Drain all worker completions in one state update and refresh once.

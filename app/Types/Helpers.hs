@@ -12,7 +12,7 @@ module Types.Helpers (
   stCurrentSongMeta,
   stSelectedSongMeta,
   stCurrentSongPos,
-  stSelectedAlbumSongs,
+  stSelectedTrackSongs,
   stLayoutElement,
   stShownCurrentTime,
   stIsTriggered,
@@ -100,10 +100,17 @@ stSelectedSongMeta meta = stSelectedSong . to (fromList . f)
   unknown MPD.Title = "Unknown Title"
   unknown _ = "Unknown"
 
-stSelectedAlbumSongs :: SimpleGetter St (Vec.Vector MPD.Song)
-stSelectedAlbumSongs = to $ \st ->
-  maybe Vec.empty albumSongs $
-    (st ^. stSelectedAlbum) >>= ((st ^. stConfig . csAllAlbums) Vec.!?)
+-- | The songs shown by the shared Tracks panel. Album and playlist selection
+-- are mutually exclusive, so the selected playlist takes precedence here.
+stSelectedTrackSongs :: SimpleGetter St (Vec.Vector MPD.Song)
+stSelectedTrackSongs = to $ \st ->
+  case st ^. stSelectedPlaylist of
+    Just selected ->
+      maybe Vec.empty playlistSongs $
+        Vec.find ((== selected) . playlistName) (st ^. stConfig . csAllPlaylists)
+    Nothing ->
+      maybe Vec.empty albumSongs $
+        (st ^. stSelectedAlbum) >>= ((st ^. stConfig . csAllAlbums) Vec.!?)
 
 stIsTriggered :: MName St -> SimpleGetter St Bool
 stIsTriggered name = to $ \st -> Set.member name (st ^. stTriggerItem)

@@ -30,6 +30,7 @@ $defs:
     enum:
       - albumList
       - trackList
+      - playlistList
       - currentQueue
       - equalizer
       - spectrum

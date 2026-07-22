@@ -66,6 +66,7 @@ instance Drawable St ElementContent where
         maybe [] (pure . mName . ElementContent . fst) (currentTabElement st path children)
       Just EAlbumList -> [mName $ AllAlbumList path]
       Just ETrackList -> [mName $ TrackList path]
+      Just EPlaylistList -> [mName $ PlaylistList path]
       Just ECurrentQueue -> [mName $ QueueSongList path]
       Just EEqualizer ->
         [mName $ EQConfigList path]
@@ -89,6 +90,8 @@ drawElement rootPath st = go True rootPath
       frame framed currentPath $ drawNamed st (AllAlbumList currentPath)
     ETrackList ->
       frame framed currentPath $ drawNamed st (TrackList currentPath)
+    EPlaylistList ->
+      frame framed currentPath $ drawNamed st (PlaylistList currentPath)
     ECurrentQueue ->
       frame framed currentPath $ drawNamed st (QueueSongList currentPath)
     EEqualizer ->
@@ -126,6 +129,7 @@ drawElement rootPath st = go True rootPath
   hasScrollBar currentPath = \case
     EAlbumList -> True
     ETrackList -> True
+    EPlaylistList -> True
     ECurrentQueue -> True
     EEqualizer -> True
     ESpectrum -> False

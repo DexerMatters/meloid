@@ -152,8 +152,6 @@ data NameKey = NameKey SomeTypeRep Int (Maybe NameKey)
 data ViewName
   = MainView
   | DebugView
-  | WelcomeDialog
-  | SimpleDialog
   deriving (Show, Eq, Ord)
 
 {- | Build the comparison key for a widget name.
@@ -181,8 +179,6 @@ viewKey v =
 viewVariant :: ViewName -> Int
 viewVariant MainView = 0
 viewVariant DebugView = 1
-viewVariant WelcomeDialog = 2
-viewVariant SimpleDialog = 3
 
 instance Eq (MName st) where
   a == b = nameKey a == nameKey b

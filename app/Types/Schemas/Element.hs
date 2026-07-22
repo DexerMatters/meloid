@@ -23,6 +23,7 @@ data LayoutElement
   | ETabs [LayoutElement]
   | EAlbumList
   | ETrackList
+  | EPlaylistList
   | ECurrentQueue
   | EEqualizer
   | ESpectrum
@@ -36,6 +37,7 @@ formatElementName (EHBox _ _) = "hBox"
 formatElementName (EVBox _ _) = "vBox"
 formatElementName EAlbumList = "albumList"
 formatElementName ETrackList = "trackList"
+formatElementName EPlaylistList = "playlistList"
 formatElementName ECurrentQueue = "currentQueue"
 formatElementName EEqualizer = "equalizer"
 formatElementName ESpectrum = "spectrum"
@@ -46,6 +48,7 @@ formatElementName EPlaceholder = "placeholder"
 parseElementName :: String -> Maybe LayoutElement
 parseElementName "albumList" = Just EAlbumList
 parseElementName "trackList" = Just ETrackList
+parseElementName "playlistList" = Just EPlaylistList
 parseElementName "currentQueue" = Just ECurrentQueue
 parseElementName "equalizer" = Just EEqualizer
 parseElementName "spectrum" = Just ESpectrum

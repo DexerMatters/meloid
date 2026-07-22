@@ -6,7 +6,6 @@ depend on a stable data layer without pulling in unrelated
 helpers.
 -}
 module Types.Model (
-  DialogSt (..),
   Album (..),
   Playlist (..),
   SongFileExtraInfo (..),
@@ -14,6 +13,7 @@ module Types.Model (
   PlayingSt (..),
   SpectrumSt (..),
   EditSt' (..),
+  UnsavedSt (..),
   Environment (..),
   MenuSt (..),
   MenuWidget (..),
@@ -29,7 +29,7 @@ module Types.Model (
   stSongProgressPreview,
   stLastRightPressed,
   stTriggerItem,
-  stUnsavedEQ,
+  stUnsaved,
   stTabStates,
   stCurrentView,
   stLastView,
@@ -37,7 +37,6 @@ module Types.Model (
   stDialog,
   stMenu,
   stMode,
-  stDialogView,
   stSelectedAlbum,
   stSelectedPlaylist,
   stSelectedSong,
@@ -67,12 +66,12 @@ module Types.Model (
   ssLevels,
   -- EditSt' lenses
   esCommand,
+  -- UnsavedSt lenses
+  usEQ,
+  usLayout,
   -- Environment lenses
   envTermType,
   envImageFormat,
-  -- Dialog lenses
-  dsText,
-  dsPage,
   -- MenuSt lenses
   msWidgets,
   msLocation,
@@ -93,18 +92,11 @@ import Data.Vector qualified as Vec
 import Lens.Micro.TH (makeLenses)
 import Network.MPD qualified as MPD
 import Types.Core
+import Types.Dialog (DialogState)
 import Types.Focus
 import Types.Identity (FocusPresentation (..), MName, ViewName)
 import Types.Image
 import Types.Schemas
-
--- | State for a simple text dialog.
-data DialogSt = DialogSt
-  { _dsPage :: Int
-  , _dsText :: String
-  }
-
-makeLenses ''DialogSt
 
 -- | An album aggregate used by the library browser.
 data Album = Album
@@ -118,7 +110,8 @@ data Album = Album
 -- | A playlist snapshot returned from MPD.
 data Playlist = Playlist
   { playlistName :: MPD.PlaylistName
-  , playlistSongs :: [MPD.Song]
+  , playlistLastModified :: Maybe UTCTime
+  , playlistSongs :: Vec.Vector MPD.Song
   }
 
 {- | Song file extra information.
@@ -179,6 +172,13 @@ data Environment = Environment
 
 makeLenses ''Environment
 
+data UnsavedSt = UnsavedSt
+  { _usEQ :: Maybe Int
+  , _usLayout :: Bool
+  }
+
+makeLenses ''UnsavedSt
+
 data MenuWidget
   = MWButton String (EventM (MName St) St ())
   | MWHeader String
@@ -203,18 +203,17 @@ data St
   , _stLastLeftClick :: Maybe (MName St, UTCTime)
   , _stSongProgressPreview :: Maybe (Double, Double)
   , _stTriggerItem :: Set.Set (MName St)
-  , _stUnsavedEQ :: Maybe Int
+  , _stUnsaved :: UnsavedSt
   , _stTabStates :: Map.Map [Int] Int
   , _stLastRightPressed :: Maybe (MName St)
   , _stCurrentView :: Maybe ViewName
   , _stLastView :: Maybe ViewName
   , _stSelectedEQConfig :: Maybe String
-  , _stDialog :: Maybe DialogSt
+  , _stDialog :: Maybe (DialogState St)
   , _stMenu :: MenuSt
   , _stMode :: Mode
-  , _stDialogView :: Maybe ViewName
   , _stSelectedAlbum :: Maybe Int
-  , _stSelectedPlaylist :: Int
+  , _stSelectedPlaylist :: Maybe MPD.PlaylistName
   , _stSelectedSong :: Maybe (MPD.Song, SongFileExtraInfo)
   , _stConfig :: ConfigSt
   , _stPlaying :: PlayingSt

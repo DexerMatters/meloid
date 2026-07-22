@@ -18,6 +18,7 @@ import Data.Map qualified as Map
 import Data.Vector qualified as Vec
 import Lens.Micro
 import Lens.Micro.Mtl
+import Network.MPD qualified as MPD
 import Types
 import Widgets.Common (strClippedWithEllipsis)
 import Widgets.Controls
@@ -140,7 +141,11 @@ drawHeader path st = \case
     , W.fill ' '
     , W.padLeft W.Max $
         W.withAttr (attrName "meta") $
-          strClippedWithEllipsis album
+          strClippedWithEllipsis trackSource
+    ]
+  EPlaylistList ->
+    [ drawNamed st $ CollapsingSwitch path
+    , W.fill ' '
     ]
   ECurrentQueue ->
     [ drawNamed st $ CollapsingSwitch path
@@ -154,7 +159,7 @@ drawHeader path st = \case
     , W.fill ' '
     , W.padLeft W.Max $ drawNamed st (EQSwitch path)
     , W.padLeft (W.Pad 1) $ drawNamed st (EQApplyButton path)
-    , case st ^. stUnsavedEQ of
+    , case st ^. stUnsaved . usEQ of
         Just _ -> W.padLeft (W.Pad 1) $ drawNamed st (EQSaveButton path)
         Nothing -> W.emptyWidget
     ]
@@ -182,6 +187,7 @@ drawHeader path st = \case
  where
   selectedAlbum = (st ^. stSelectedAlbum) >>= ((st ^. stConfig . csAllAlbums) Vec.!?)
   album = maybe "" albumName selectedAlbum
+  trackSource = maybe album MPD.toString (st ^. stSelectedPlaylist)
 
 toggleCollapsed :: ElementPath -> EventM (MName St) St ()
 toggleCollapsed path =
@@ -200,7 +206,7 @@ headerFocusControls path st = \case
     [mName ShuffleButton, mName ReverseOrderButton, mName ClearButton]
   EEqualizer ->
     [mName $ EQSwitch path, mName $ EQApplyButton path]
-      <> case st ^. stUnsavedEQ of
+      <> case st ^. stUnsaved . usEQ of
         Just _ -> [mName $ EQSaveButton path]
         Nothing -> []
   ETabs children ->

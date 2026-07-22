@@ -53,9 +53,18 @@ eq: default
 #   - currentQueue
 layout:
   hBox:
-    - weights: [2, 3]
-    - albumList
+    - weights:
+        - 2
+        - 3
     - vBox:
-        - weights: [1, 1]
+        - weights:
+            - 1
+            - 1
+        - albumList
+        - playlistList
+    - vBox:
+        - weights:
+            - 1
+            - 1
         - trackList
         - currentQueue

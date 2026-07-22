@@ -15,7 +15,7 @@ import Brick qualified as W hiding (Horizontal, Vertical)
 import Brick.Main qualified as M
 import Brick.Widgets.Border qualified as Bd
 import Brick.Widgets.Center qualified as C
-import Control.Monad (filterM)
+import Control.Monad (filterM, when)
 import Data.Bool (bool)
 import Data.List (unsnoc)
 import Data.Maybe (isJust)
@@ -32,6 +32,16 @@ data ElementScaffoldName = ElementScaffoldName ElementPath
 -- | No draggable child may occupy less than this share of its parent box.
 minimumScaffoldShare :: Double
 minimumScaffoldShare = 0.15
+
+-- | Apply a layout transformation and remember it only when it changes the
+-- persisted layout. Both menu edits and divider drags use this path.
+modifyLayout :: (LayoutElement -> LayoutElement) -> EventM (MName St) St ()
+modifyLayout update = do
+  current <- use (stConfig . csConfigs . cvLayout)
+  let changed = update current
+  when (changed /= current) $ do
+    stConfig . csConfigs . cvLayout .= changed
+    stUnsaved . usLayout .= True
 
 instance Drawable St ElementScaffoldName where
   draw (ElementScaffoldName path) st =
@@ -108,7 +118,7 @@ createSelectionMenu p action =
           ]
    in let panelWidgets =
             filter p $
-              [EAlbumList, ETrackList, ESongInfo, ECurrentQueue, EEqualizer, ESpectrum, EPlaceholder]
+              [EAlbumList, ETrackList, EPlaylistList, ESongInfo, ECurrentQueue, EEqualizer, ESpectrum, EPlaceholder]
        in layoutWidgets <|> MWHeader "Containers"
             <> (layoutWidgets <&> \w -> MWButton (formatElementName w) (action w))
             <> panelWidgets <|> MWHeader "Panels"
@@ -150,7 +160,7 @@ createMenuForElement path e =
     _ -> pure False
 
   replaceTo dest =
-    stConfig . csConfigs . cvLayout %= replaceAt path
+    modifyLayout $ replaceAt path
    where
     replaceAt [] _ = dest
     replaceAt (index : rest) element =
@@ -167,7 +177,7 @@ createMenuForElement path e =
 
   delete :: EventM (MName St) St ()
   delete =
-    stConfig . csConfigs . cvLayout %= deleteAt path
+    modifyLayout $ deleteAt path
    where
     deleteAt [] _ = EPlaceholder
     deleteAt [index] element = deleteChild index element
@@ -199,17 +209,12 @@ createMenuForElement path e =
     case unsnoc path of
       Nothing -> pure ()
       Just (p, index) ->
-        stConfig
-          . csConfigs
-          . cvLayout
-          %= modifyContainerAt p (addToContainer (index + bool 1 0 before) element)
+        modifyLayout $ modifyContainerAt p (addToContainer (index + bool 1 0 before) element)
 
   insert :: Bool -> LayoutElement -> EventM (MName St) St ()
   insert before element =
-    stConfig
-      . csConfigs
-      . cvLayout
-      %= modifyContainerAt
+    modifyLayout $
+      modifyContainerAt
         path
         ( \container ->
             addToContainer (bool (childCount container) 0 before) element container
@@ -315,7 +320,7 @@ dispatchMouseDown path location = do
                   (rightStart, end) = bounds rightSibling
                   activeCells = leftEnd - start + end - rightStart
                   ratio = resizeRatio activeCells (start, end) $ axisCoordinate (localToScreen currentExtent location)
-              stConfig . csConfigs . cvLayout %= resizeLayoutDivider parentPath' divider ratio
+              modifyLayout $ resizeLayoutDivider parentPath' divider ratio
             _ -> pure ()
 
 resizeLayoutDivider :: [Int] -> Int -> Double -> LayoutElement -> LayoutElement

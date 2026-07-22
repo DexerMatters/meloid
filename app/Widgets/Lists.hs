@@ -3,7 +3,9 @@ module Widgets.Lists (
   AllAlbumList (..),
   AllAlbumEntry (..),
   TrackList (..),
-  AlbumSongEntry (..),
+  TrackSongEntry (..),
+  PlaylistList (..),
+  PlaylistEntry (..),
   QueueSongList (..),
   QueueSongEntry (..),
   SongInfoList (..),
@@ -42,13 +44,17 @@ data AllAlbumEntry = AllAlbumEntry ElementPath Int
 
 data TrackList = TrackList ElementPath
 
-data AlbumSongEntry = AlbumSongEntry ElementPath Int
+data TrackSongEntry = TrackSongEntry ElementPath Int
 
 data QueueSongList = QueueSongList ElementPath
 
 data QueueSongEntry = QueueSongEntry ElementPath Int
 
 data SongInfoList = SongInfoList ElementPath
+
+data PlaylistList = PlaylistList ElementPath
+
+data PlaylistEntry = PlaylistEntry ElementPath Int
 
 data EQConfigList = EQConfigList ElementPath
 
@@ -101,38 +107,66 @@ instance Drawable St AllAlbumEntry where
         drawGeneralButton st (mName $ AllAlbumEntry path i) $
           W.withAttr (attrName "header") $
             strClippedWithEllipsis (albumName album)
-  onMouseLeftUp (AllAlbumEntry _ i) = Just $ \_ -> stSelectedAlbum .= Just i
+  onMouseLeftUp (AllAlbumEntry _ i) = Just $ \_ -> selectAlbum i
   parent (AllAlbumEntry path _) = Just (ParentName $ mName $ AllAlbumList path)
   variant (AllAlbumEntry _ i) = i
   focusBinding _ _ = Just FocusPassive
-  onFocus (AllAlbumEntry _ i) _ = Just $ stSelectedAlbum .= Just i
+  onFocus (AllAlbumEntry _ i) _ = Just $ selectAlbum i
 
 instance Drawable St TrackList where
   draw (TrackList path) st =
     drawSongList
       st
       (mName $ TrackList path)
-      (AlbumSongEntry path)
-      (st ^. stSelectedAlbumSongs)
+      (TrackSongEntry path)
+      (st ^. stSelectedTrackSongs)
   onMouseScrollUp (TrackList path) = Just $ scrollViewportBy (mName $ TrackList path) (-1)
   onMouseScrollDown (TrackList path) = Just $ scrollViewportBy (mName $ TrackList path) 1
   parent (TrackList path) = Just . ParentName . mName $ ElementNode path
   variant (TrackList path) = pathVariant path
   focusChildren (TrackList path) st =
-    [ mName $ AlbumSongEntry path i
-    | i <- [0 .. Vec.length (st ^. stSelectedAlbumSongs) - 1]
+    [ mName $ TrackSongEntry path i
+    | i <- [0 .. Vec.length (st ^. stSelectedTrackSongs) - 1]
     ]
 
-instance Drawable St AlbumSongEntry where
-  draw (AlbumSongEntry path i) st =
-    drawSongRow st (AlbumSongEntry path) i (st ^. stSelectedAlbumSongs) songTrack
-  onMouseDoubleClick (AlbumSongEntry _ i) = Just $ \_ -> queueAlbumSong i
-  onMouseLeftUp (AlbumSongEntry _ i) = Just $ \_ -> do
-    selectAlbumSong i
-  parent (AlbumSongEntry path _) = Just (ParentName $ mName $ TrackList path)
-  variant (AlbumSongEntry _ i) = i
-  focusBinding (AlbumSongEntry _ i) _ = Just $ FocusAction (queueAlbumSong i)
-  onFocus (AlbumSongEntry _ i) _ = Just $ selectAlbumSong i
+instance Drawable St TrackSongEntry where
+  draw (TrackSongEntry path i) st =
+    drawSongRow st (TrackSongEntry path) i (st ^. stSelectedTrackSongs) songTrack
+  onMouseDoubleClick (TrackSongEntry _ i) = Just $ \_ -> queueTrackSong i
+  onMouseLeftUp (TrackSongEntry _ i) = Just $ \_ -> selectTrackSong i
+  parent (TrackSongEntry path _) = Just (ParentName $ mName $ TrackList path)
+  variant (TrackSongEntry _ i) = i
+  focusBinding (TrackSongEntry _ i) _ = Just $ FocusAction (queueTrackSong i)
+  onFocus (TrackSongEntry _ i) _ = Just $ selectTrackSong i
+
+instance Drawable St PlaylistList where
+  draw (PlaylistList path) st =
+    viewportWithBar st (mName $ PlaylistList path) . W.vBox $
+      map
+        (drawNamed st . PlaylistEntry path)
+        [0 .. Vec.length (st ^. stConfig . csAllPlaylists) - 1]
+  onMouseScrollUp (PlaylistList path) = Just $ scrollViewportBy (mName $ PlaylistList path) (-1)
+  onMouseScrollDown (PlaylistList path) = Just $ scrollViewportBy (mName $ PlaylistList path) 1
+  parent (PlaylistList path) = Just . ParentName . mName $ ElementNode path
+  variant (PlaylistList path) = pathVariant path
+  focusChildren (PlaylistList path) st =
+    [ mName $ PlaylistEntry path i
+    | i <- [0 .. Vec.length (st ^. stConfig . csAllPlaylists) - 1]
+    ]
+
+instance Drawable St PlaylistEntry where
+  draw (PlaylistEntry path i) st =
+    case (st ^. stConfig . csAllPlaylists) Vec.!? i of
+      Nothing -> W.emptyWidget
+      Just playlist ->
+        drawGeneralButton st (mName $ PlaylistEntry path i) $
+          W.withAttr (attrName "header") $
+            strClippedWithEllipsis (MPD.toString $ playlistName playlist)
+  onMouseLeftUp (PlaylistEntry _ i) = Just $ \_ -> selectPlaylist i
+  parent (PlaylistEntry path _) = Just (ParentName $ mName $ PlaylistList path)
+  variant (PlaylistEntry _ i) = i
+  focusBinding _ _ = Just FocusPassive
+  onFocus (PlaylistEntry _ i) _ = Just $ selectPlaylist i
 
 instance Drawable St QueueSongList where
   draw (QueueSongList path) st =
@@ -167,23 +201,23 @@ instance Drawable St SongInfoList where
   draw (SongInfoList path) st =
     viewportWithBar st (mName $ SongInfoList path) . W.vBox $
       [ header "MUSIC INFO: "
-        , "Disc" <-> (intercalate ", " $ NonEmpty.toList $ meta MPD.Disc)
-        , "Track" <-> (h $ meta MPD.Track)
-        , "Name" <-> (h $ meta MPD.Title)
-        , "Artist" <-> (intercalate ", " $ NonEmpty.toList $ meta MPD.Artist)
-        , "Album" <-> (intercalate ", " $ NonEmpty.toList $ meta MPD.Album)
-        , "Genre" <-> (intercalate "/" $ NonEmpty.toList $ meta MPD.Genre)
-        , "Date" <-> (h $ meta MPD.Date)
-        , "Comment" <-> (h $ meta MPD.Comment)
-        , "Label" <-> (h $ meta MPD.Label)
-        , header "\nFILE INFO: "
-        , "Location" <-> (st ^. stSelectedSong .? to (MPD.toString . MPD.sgFilePath . fst))
-        , "Last Modified" <-> (st ^. stSelectedSong .? to (formatTime . MPD.sgLastModified . fst))
-        , "Size" <-> (st ^. stSelectedSong .? to (songSize . snd))
-        , "Length" <-> (st ^. stSelectedSong .? to (formatSecs . MPD.sgLength . fst))
-        , "Bitrate" <-> (st ^. stSelectedSong .? to (songBitRate . snd))
-        , "Sample Rate" <-> (st ^. stSelectedSong .? to (songSampleRate . snd))
-        , "Channels" <-> (st ^. stSelectedSong .? to (songChannels . snd))
+      , "Disc" <-> (intercalate ", " $ NonEmpty.toList $ meta MPD.Disc)
+      , "Track" <-> (h $ meta MPD.Track)
+      , "Name" <-> (h $ meta MPD.Title)
+      , "Artist" <-> (intercalate ", " $ NonEmpty.toList $ meta MPD.Artist)
+      , "Album" <-> (intercalate ", " $ NonEmpty.toList $ meta MPD.Album)
+      , "Genre" <-> (intercalate "/" $ NonEmpty.toList $ meta MPD.Genre)
+      , "Date" <-> (h $ meta MPD.Date)
+      , "Comment" <-> (h $ meta MPD.Comment)
+      , "Label" <-> (h $ meta MPD.Label)
+      , header "\nFILE INFO: "
+      , "Location" <-> (st ^. stSelectedSong .? to (MPD.toString . MPD.sgFilePath . fst))
+      , "Last Modified" <-> (st ^. stSelectedSong .? to (formatTime . MPD.sgLastModified . fst))
+      , "Size" <-> (st ^. stSelectedSong .? to (songSize . snd))
+      , "Length" <-> (st ^. stSelectedSong .? to (formatSecs . MPD.sgLength . fst))
+      , "Bitrate" <-> (st ^. stSelectedSong .? to (songBitRate . snd))
+      , "Sample Rate" <-> (st ^. stSelectedSong .? to (songSampleRate . snd))
+      , "Channels" <-> (st ^. stSelectedSong .? to (songChannels . snd))
       ]
    where
     h = NonEmpty.head
@@ -241,10 +275,10 @@ instance Drawable St EQConfigEntry where
     -- SAFETY: EQConfigEntry is indexed within the length of EQConfigs
     text = fst $ Map.elemAt i configs
     star
-      | st ^. stUnsavedEQ == Just i = "*"
+      | st ^. stUnsaved . usEQ == Just i = "*"
       | otherwise = ""
     with
-      | st ^. stUnsavedEQ == Just i = B.withDefAttr (attrName "unsaved")
+      | st ^. stUnsaved . usEQ == Just i = B.withDefAttr (attrName "unsaved")
       | otherwise = id
     EQConfigValue configs = st ^. stConfig . csEQConfigs
   variant (EQConfigEntry _ i) = i
@@ -295,17 +329,27 @@ instance Drawable St MenuEntry where
   onMouseLeftUp (MenuEntry i) = Just $ \_ -> do
     activateMenuEntry i
 
-selectAlbumSong :: Int -> EventM (MName St) St ()
-selectAlbumSong i = withSelectedAlbumSong i selectSong
+selectAlbum :: Int -> EventM (MName St) St ()
+selectAlbum i =
+  use (stConfig . csAllAlbums) >>= \albums ->
+    mapM_ (\_ -> stSelectedAlbum .= Just i >> stSelectedPlaylist .= Nothing) (albums Vec.!? i)
 
-queueAlbumSong :: Int -> EventM (MName St) St ()
-queueAlbumSong i = withSelectedAlbumSong i queueSong
+selectTrackSong :: Int -> EventM (MName St) St ()
+selectTrackSong i = withSelectedTrackSong i selectSong
+
+queueTrackSong :: Int -> EventM (MName St) St ()
+queueTrackSong i = withSelectedTrackSong i queueSong
+
+selectPlaylist :: Int -> EventM (MName St) St ()
+selectPlaylist i =
+  use (stConfig . csAllPlaylists) >>= \playlists ->
+    mapM_ (\playlist -> stSelectedAlbum .= Nothing >> stSelectedPlaylist .= Just (playlistName playlist)) (playlists Vec.!? i)
 
 selectQueueSong :: Int -> EventM (MName St) St ()
 selectQueueSong i = use (stPlaying . psCurrentQueue) >>= withSongAt i selectSong
 
-withSelectedAlbumSong :: Int -> (MPD.Song -> EventM (MName St) St ()) -> EventM (MName St) St ()
-withSelectedAlbumSong i action = use stSelectedAlbumSongs >>= withSongAt i action
+withSelectedTrackSong :: Int -> (MPD.Song -> EventM (MName St) St ()) -> EventM (MName St) St ()
+withSelectedTrackSong i action = use stSelectedTrackSongs >>= withSongAt i action
 
 withSongAt :: Int -> (MPD.Song -> EventM (MName St) St ()) -> Vec.Vector MPD.Song -> EventM (MName St) St ()
 withSongAt i action = maybe (pure ()) action . (Vec.!? i)

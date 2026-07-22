@@ -44,6 +44,7 @@ executable meloid
     Types.Identity
     Types.Core
     Types.Focus
+    Types.Dialog
     Types.Image
     Types.Model
     Types.Schemas
@@ -66,6 +67,7 @@ executable meloid
     Widgets.Layer
     Widgets.Lists
     Widgets.Controls
+    Widgets.Dialogs
     Widgets.Views
     Widgets.Edits
     Widgets.Image

@@ -5,6 +5,7 @@ module Widgets (
   module Widgets.Elements,
   module Widgets.Lists,
   module Widgets.Controls,
+  module Widgets.Dialogs,
   module Widgets.Views,
   module Widgets.Layer,
   module Widgets.Image,
@@ -15,6 +16,7 @@ where
 
 import Widgets.Common
 import Widgets.Controls
+import Widgets.Dialogs
 import Widgets.Focus
 import Widgets.Elements
 import Widgets.Image

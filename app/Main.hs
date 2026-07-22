@@ -92,7 +92,11 @@ defaultSt =
     , _stPressed = Nothing
     , _stLastLeftClick = Nothing
     , _stTriggerItem = Set.empty
-    , _stUnsavedEQ = Nothing
+    , _stUnsaved =
+        UnsavedSt
+          { _usEQ = Nothing
+          , _usLayout = False
+          }
     , _stTabStates = Map.empty
     , _stSongProgressPreview = Nothing
     , _stLastRightPressed = Nothing
@@ -100,11 +104,10 @@ defaultSt =
     , _stLastView = Nothing
     , _stSelectedEQConfig = Nothing
     , _stDialog = Nothing
-    , _stDialogView = Nothing
     , _stMenu = MenuSt [] placeholderName (B.Location (0, 0)) (0, 0)
     , _stMode = NormalMode
     , _stSelectedAlbum = Nothing
-    , _stSelectedPlaylist = 0
+    , _stSelectedPlaylist = Nothing
     , _stSelectedSong = Nothing
     , _stConfig =
         ConfigSt

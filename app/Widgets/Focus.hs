@@ -110,7 +110,7 @@ activeFocusScope st =
 focusEnabled :: St -> Bool
 focusEnabled st =
   st ^. stMode == NormalMode
-    || isJust (st ^. stDialogView)
+    || isJust (st ^. stDialog)
     || not (null $ st ^. stMenu . msWidgets)
 
 focusOrder :: St -> MName St -> [MName St]
