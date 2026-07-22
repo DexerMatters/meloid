@@ -23,6 +23,7 @@ extra-source-files:
   assets/config.schema.yaml
   assets/default-config.yaml
   assets/default-eq.txt
+  assets/docs/welcome.md
 
 data-files:
   tools/package.json
@@ -77,6 +78,7 @@ executable meloid
     Compat.Term
     Compat.Ansi
     Compat.Software
+    Compat.Markdown
     Foreign.PipeWire
     Network.MPD
 
@@ -120,6 +122,7 @@ executable meloid
     vty-crossplatform,
 
     -- Parsers
+    cmark,
     aeson,
     yaml,
     megaparsec,

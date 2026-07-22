@@ -8,12 +8,14 @@ module Widgets.Dialogs (
 ) where
 
 import Brick
+import Brick qualified as B
+import Brick.Main qualified as M
 import Brick.Widgets.Border qualified as Bd
 import Brick.Widgets.Core qualified as W
 import Lens.Micro ((^.))
 import Lens.Micro.Mtl
 import Types
-import Widgets.Common (drawButton)
+import Widgets.Common (drawButton, scrollTransaction, scrollViewportBy, viewportWithBar)
 
 data DialogButton
   = DialogPreviousButton
@@ -23,8 +25,16 @@ data DialogButton
   | DialogNoButton
   | DialogYesButton
 
+data DialogViewport = DialogViewport
+
 dialogMaxWidth :: Int
 dialogMaxWidth = 64
+
+dialogMaxHeight :: Int
+dialogMaxHeight = 20
+
+dialogBodyMaxHeight :: Int
+dialogBodyMaxHeight = 14
 
 -- | Draw the active dialog's shared frame around its supplied content.
 drawDialog :: St -> Widget (MName St)
@@ -33,10 +43,10 @@ drawDialog st =
 
 drawDialogState :: St -> DialogState St -> Widget (MName St)
 drawDialogState st dialog =
-  W.withAttr (attrName "dialog") . W.hLimit dialogMaxWidth $
+  W.withAttr (attrName "dialog") . W.hLimit dialogMaxWidth . W.vLimit dialogMaxHeight $
     Bd.borderWithLabel title $
       W.padAll 1 . W.vBox $
-        [ W.vBox $ dialogPageWidgets dialog
+        [ W.vLimit dialogBodyMaxHeight $ drawNamed st DialogViewport
         , W.padTop (W.Pad 1) $ drawDialogButtons st dialog
         ]
  where
@@ -70,7 +80,7 @@ drawDialogButtons st dialog
 -- | Focus only the controls that are visible for the active dialog page.
 dialogFocusChildren :: St -> [MName St]
 dialogFocusChildren st =
-  maybe [] focusButtons (st ^. stDialog)
+  maybe [] ((mName DialogViewport :) . focusButtons) (st ^. stDialog)
  where
   focusButtons dialog
     | dialogIsSimple dialog = [mName DialogCancelButton, mName DialogNoButton, mName DialogYesButton]
@@ -105,18 +115,28 @@ instance Drawable St DialogButton where
 
 activateDialogButton :: DialogButton -> EventM (MName St) St ()
 activateDialogButton = \case
-  DialogPreviousButton -> stDialog %= fmap dialogPreviousPage
-  DialogNextButton -> stDialog %= fmap dialogNextPage
+  DialogPreviousButton -> changeDialogPage dialogPreviousPage
+  DialogNextButton -> changeDialogPage dialogNextPage
   DialogFinishButton -> closeDialog
   DialogCancelButton -> closeDialog
   DialogNoButton -> runSimpleAction False
   DialogYesButton -> runSimpleAction True
 
+instance Drawable St DialogViewport where
+  draw _ st =
+    viewportWithBar st (mName DialogViewport) $
+      maybe W.emptyWidget dialogPageWidget (st ^. stDialog)
+  onMouseScrollUp _ = Just $ scrollViewportBy (mName DialogViewport) (-1)
+  onMouseScrollDown _ = Just $ scrollViewportBy (mName DialogViewport) 1
+  focusBinding _ _ = Just $ FocusAdjust $ scrollTransaction (mName DialogViewport)
+
+changeDialogPage :: (DialogState St -> DialogState St) -> EventM (MName St) St ()
+changeDialogPage update = do
+  stDialog %= fmap update
+  M.vScrollToBeginning $ B.viewportScroll (mName DialogViewport)
+
 runSimpleAction :: Bool -> EventM (MName St) St ()
 runSimpleAction chooseYes =
   use stDialog >>= \case
-    Just dialog ->
-      case dialogSimpleAction chooseYes dialog of
-        Just action -> closeDialog >> action
-        Nothing -> pure ()
+    Just dialog -> maybe (pure ()) (closeDialog >>) $ dialogSimpleAction chooseYes dialog
     Nothing -> pure ()

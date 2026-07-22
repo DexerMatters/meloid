@@ -24,6 +24,7 @@ module Utils (
   containsExtent,
   intersectsExtent,
   replace,
+  split,
   trim,
   unquote,
 ) where
@@ -223,6 +224,17 @@ replace old new xs = go xs
   go ys@(z : zs)
     | old `isPrefixOf` ys = new ++ go (drop (length old) ys)
     | otherwise = z : go zs
+
+-- | Split text on a non-empty substring, retaining empty fields.
+split :: String -> String -> [String]
+split sep text
+  | null sep = [text]
+  | otherwise = go [] text
+ where
+  go field [] = [reverse field]
+  go field remaining
+    | sep `isPrefixOf` remaining = reverse field : go [] (drop (length sep) remaining)
+    | char : rest <- remaining = go (char : field) rest
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace

@@ -50,8 +50,8 @@ closeDialog = stDialog .= Nothing
 openDialog :: Dialog St -> EventM (MName St) St ()
 openDialog = (stDialog .=) . Just . dialogState
 
--- | Open a paged dialog from a title and the widgets on each page.
-openPagedDialog :: String -> NonEmpty [Widget (MName St)] -> EventM (MName St) St ()
+-- | Open a paged dialog from a title and one widget for each page.
+openPagedDialog :: String -> NonEmpty (Widget (MName St)) -> EventM (MName St) St ()
 openPagedDialog title = openDialog . PagedDialog title
 
 -- | Open a confirmation dialog with programmable NO and YES actions.

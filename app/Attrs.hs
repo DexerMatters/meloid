@@ -60,7 +60,7 @@ defaultTheme =
     , (a "iconButton" <> a "pressed", black `on` accent)
     , (a "focused", white `on` secondary)
     , (a "unsaved", defAttr `withStyle` italic)
-    , (a "dialog", primary `on` secondary)
+    , (a "dialog", defAttr)
     , (a "header", currentAttr `withForeColor` primary `withStyle` bold)
     , (a "label", black `on` accent)
     , (a "bottomLabel", (black `on` accent) `withStyle` bold)
@@ -88,6 +88,10 @@ defaultTheme =
     , (a "infoLog", fg $ white)
     , (a "warnLog", fg $ yellow)
     , (a "errorLog", fg $ red)
+    , -- Markdown
+      (a "mkHeader", fg primary `withStyle` bold)
+    , (a "mkQuote", fg accent `withStyle` italic)
+    , (a "mkStrong", fg accent2 `withStyle` bold)
     ]
 
 hex2RGB :: Int -> Color

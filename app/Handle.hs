@@ -1,3 +1,6 @@
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
+
 {- | This module is responsible for handling various events
 Events are basically classified into three categories:
 
@@ -20,6 +23,7 @@ import Brick.Types (
 import Brick.Widgets.Edit qualified as E
 import Cmd (execCmd)
 import Compat.Image qualified as Image
+import Compat.Markdown (parseMarkdownText)
 import Compat.Term qualified as Term
 import Control.Monad (unless, void, when)
 import Control.Monad.IO.Class (liftIO)
@@ -27,16 +31,21 @@ import Control.Monad.State (get)
 import Data.Foldable (for_)
 import Data.Functor (($>))
 import Data.List (find)
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map qualified as Map
 import Data.Maybe (isJust)
+import Data.Text qualified as Text
 import Data.Text.Zipper qualified as TZ
 import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
 import Graphics.Vty qualified as V
+import Language.Haskell.TH.Syntax (Lift (lift), addDependentFile, runIO)
 import Lens.Micro
 import Lens.Micro.Mtl
 import Network.MPD qualified as MPD
+import System.FilePath ((</>))
 import Types
 import Types.Configs (Configs (..), saveWithPanic)
+import Utils (split)
 import Widgets.Focus (dismissKeyboardFocus, handleFocusEvent, reconcileFocus)
 import Widgets.Image (imageScene)
 import Widgets.Layer (activeOccluderNames)
@@ -356,3 +365,21 @@ handleStartEvent = do
       <> "- Image format: "
       <> show (Term.deduceFormat termType)
   reconcileFocus
+
+  -- Show the welcome dialog (if any)
+  welcome <- use $ stConfig . csConfigs . cvShowWelcome
+  let text =
+        Text.pack
+          <$> split
+            "%%"
+            $( do
+                 let fp = "assets" </> "docs" </> "welcome.md"
+                 addDependentFile fp
+                 content <- runIO (readFile fp)
+                 lift content
+             )
+  when welcome
+    $ openPagedDialog
+      "Welcome"
+    $ NonEmpty.fromList
+    $ parseMarkdownText <$> text

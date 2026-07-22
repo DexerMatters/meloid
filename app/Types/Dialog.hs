@@ -9,7 +9,7 @@ module Types.Dialog (
   DialogState,
   dialogState,
   dialogTitle,
-  dialogPageWidgets,
+  dialogPageWidget,
   dialogCanGoBack,
   dialogCanGoForward,
   dialogPreviousPage,
@@ -25,7 +25,7 @@ import Types.Identity (MName)
 
 -- | A multi-page dialog or a single confirmation dialog.
 data Dialog st
-  = PagedDialog String (NonEmpty [Widget (MName st)])
+  = PagedDialog String (NonEmpty (Widget (MName st)))
   | SimpleDialog
       String
       (Widget (MName st))
@@ -44,14 +44,14 @@ dialogTitle (DialogState dialog _) =
     PagedDialog title _ -> title
     SimpleDialog title _ _ _ -> title
 
-dialogPageWidgets :: DialogState st -> [Widget (MName st)]
-dialogPageWidgets (DialogState dialog page) =
+dialogPageWidget :: DialogState st -> Widget (MName st)
+dialogPageWidget (DialogState dialog page) =
   case dialog of
     PagedDialog _ pages ->
       case drop page (NonEmpty.toList pages) of
         current : _ -> current
         [] -> NonEmpty.last pages
-    SimpleDialog _ widget _ _ -> [widget]
+    SimpleDialog _ widget _ _ -> widget
 
 dialogCanGoBack :: DialogState st -> Bool
 dialogCanGoBack (DialogState PagedDialog{} page) = page > 0
