@@ -23,6 +23,7 @@ module Types.Model (
   PaintedScene,
   -- St lenses
   stEdits,
+  stFocus,
   stPressed,
   stLastLeftClick,
   stSongProgressPreview,
@@ -81,6 +82,7 @@ module Types.Model (
 
 import Brick (Location)
 import Brick.BChan (BChan)
+import Brick.Focus qualified as Focus
 import Brick.Types (EventM, Extent)
 import Brick.Widgets.Edit qualified as E
 import Compat.Term (ImageFormat, TermType)
@@ -91,7 +93,8 @@ import Data.Vector qualified as Vec
 import Lens.Micro.TH (makeLenses)
 import Network.MPD qualified as MPD
 import Types.Core
-import Types.Identity (MName, ViewName)
+import Types.Focus
+import Types.Identity (FocusPresentation (..), MName, ViewName)
 import Types.Image
 import Types.Schemas
 
@@ -195,6 +198,7 @@ data MenuSt = MenuSt
 data St
   = St
   { _stEdits :: EditSt' St
+  , _stFocus :: FocusState St
   , _stPressed :: Maybe (MName St)
   , _stLastLeftClick :: Maybe (MName St, UTCTime)
   , _stSongProgressPreview :: Maybe (Double, Double)
@@ -225,6 +229,13 @@ data St
 
 makeLenses ''MenuSt
 makeLenses ''St
+
+instance FocusPresentation St where
+  focusPresentationTarget st
+    | _fsVisible focus = Focus.focusGetCurrent (_fsRing focus)
+    | otherwise = Nothing
+   where
+    focus = _stFocus st
 
 type Event = Event' ConfigSt
 

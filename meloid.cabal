@@ -43,6 +43,7 @@ executable meloid
     Types
     Types.Identity
     Types.Core
+    Types.Focus
     Types.Image
     Types.Model
     Types.Schemas
@@ -56,6 +57,7 @@ executable meloid
     Handle
     Widgets
     Widgets.Common
+    Widgets.Focus
     Widgets.Elements
     Widgets.Elements.Common
     Widgets.Elements.Element

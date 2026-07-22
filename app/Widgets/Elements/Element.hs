@@ -7,6 +7,7 @@ displayed in `Command` or `Normal` mode.
 -}
 module Widgets.Elements.Element (
   ElementName (..),
+  ElementContent (..),
 ) where
 
 import Brick hiding (Horizontal, Vertical)
@@ -27,6 +28,13 @@ import Widgets.Visual.Spectrum
 data ElementName = ElementName ElementPath
   deriving (Show, Eq)
 
+-- | A focus-tree-only view of an element body.  Tab containers render the
+-- selected child's body without a second header, so a separate identity keeps
+-- focus traversal faithful to that rendering rule without duplicating it in
+-- the global controller.
+data ElementContent = ElementContent ElementPath
+  deriving (Show, Eq)
+
 instance Drawable St ElementName where
   draw (ElementName path) st
     | st ^. stMode == EditMode = drawNamed st (ElementScaffoldName path)
@@ -36,6 +44,34 @@ instance Drawable St ElementName where
           Just element -> drawElement path st element
   parent (ElementName path) = Just . ParentName . mName $ ElementNode path
   variant (ElementName path) = pathVariant path
+  focusChildren (ElementName path) st =
+    case st ^. stLayoutElement path of
+      Just (EHBox _ children) -> mName . ElementName <$> childPaths children path
+      Just (EVBox _ children) -> mName . ElementName <$> childPaths children path
+      Just element
+        | isFocusableElement element ->
+            [mName $ HeaderName path]
+              <> [mName $ ElementContent path | isExpanded path st]
+      _ -> []
+
+instance Drawable St ElementContent where
+  draw _ _ = W.emptyWidget
+  parent (ElementContent path) = Just . ParentName . mName $ ElementNode path
+  variant (ElementContent path) = pathVariant path
+  focusChildren (ElementContent path) st =
+    case st ^. stLayoutElement path of
+      Just (EHBox _ children) -> mName . ElementName <$> childPaths children path
+      Just (EVBox _ children) -> mName . ElementName <$> childPaths children path
+      Just (ETabs children) ->
+        maybe [] (pure . mName . ElementContent . fst) (currentTabElement st path children)
+      Just EAlbumList -> [mName $ AllAlbumList path]
+      Just ETrackList -> [mName $ TrackList path]
+      Just ECurrentQueue -> [mName $ QueueSongList path]
+      Just EEqualizer ->
+        [mName $ EQConfigList path]
+          <> [mName $ EQGainBarsViewport path | st ^. stIsTriggered (mName $ EQSwitch path)]
+      Just ESongInfo -> [mName $ SongInfoList path]
+      _ -> []
 
 -- | Render a layout subtree, framing leaves with their element header.
 drawElement :: ElementPath -> St -> LayoutElement -> Widget (MName St)
@@ -70,7 +106,7 @@ drawElement rootPath st = go True rootPath
           axis
           weights
           (zipWith needsSpacing slots $ drop 1 slots)
-          [ (isExpanded childPath, drawNamed st $ ElementName childPath)
+          [ (expanded childPath, drawNamed st $ ElementName childPath)
           | (childPath, _) <- slots
           ]
 
@@ -78,25 +114,14 @@ drawElement rootPath st = go True rootPath
     | not framed = body
     | otherwise =
         W.vBox
-          [ if isExpanded currentPath
+          [ if expanded currentPath
               then drawNamed st (HeaderName currentPath)
               else drawCollapsedHeader currentPath st
-          , bool W.emptyWidget body (isExpanded currentPath)
+          , bool W.emptyWidget body (expanded currentPath)
           ]
 
-  isExpanded path =
-    case st ^. stLayoutElement path of
-      Just element
-        | isCollapsible element ->
-            not $ st ^. stIsTriggered (mName $ ElementNode path)
-      _ ->
-        True
-
-  isCollapsible = \case
-    EHBox{} -> False
-    EVBox{} -> False
-    EPlaceholder -> False
-    _ -> True
+  expanded path =
+    isExpanded path st
 
   hasScrollBar currentPath = \case
     EAlbumList -> True
@@ -115,6 +140,28 @@ drawElement rootPath st = go True rootPath
 
   needsSpacing (leftPath, left) (rightPath, right) =
     not $ hasScrollBar leftPath left || hasScrollBar rightPath right
+
+isFocusableElement :: LayoutElement -> Bool
+isFocusableElement = \case
+  EHBox{} -> False
+  EVBox{} -> False
+  EPlaceholder -> False
+  _ -> True
+
+isExpanded :: ElementPath -> St -> Bool
+isExpanded path st =
+  case st ^. stLayoutElement path of
+    Just element
+      | isCollapsible element ->
+          not $ st ^. stIsTriggered (mName $ ElementNode path)
+    _ -> True
+
+isCollapsible :: LayoutElement -> Bool
+isCollapsible = \case
+  EHBox{} -> False
+  EVBox{} -> False
+  EPlaceholder -> False
+  _ -> True
 
 -- | Draw the equalizer's list and active editor side by side.
 drawEqualizerPanel :: ElementPath -> St -> Widget (MName St)

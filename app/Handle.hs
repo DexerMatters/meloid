@@ -36,24 +36,38 @@ import Lens.Micro.Mtl
 import Network.MPD qualified as MPD
 import Types
 import Widgets.Image (imageScene)
+import Widgets.Focus (dismissKeyboardFocus, handleFocusEvent, reconcileFocus)
 import Widgets.Layer (activeOccluderNames)
 import Widgets.Lists (MenuEntry (..))
 
 -- | The entrance point for handling events
 handleEvent :: Image.ImageService -> BrickEvent (MName St) Event -> EventM (MName St) St ()
 handleEvent imageService ev = do
+  dismissFocusForPointer ev
   handled <- handleGlobalEvent imageService ev
   unless handled $
-    use stMode >>= \case
-      CommandMode ->
-        zoom (stEdits . esCommand) $ E.handleEditorEvent ev
-      _ ->
-        handleEvent' imageService ev
+    handleFocusEvent ev >>= \focusHandled ->
+      unless focusHandled $
+        use stMode >>= \case
+          CommandMode ->
+            zoom (stEdits . esCommand) $ E.handleEditorEvent ev
+          _ ->
+            handleEvent' imageService ev
+  reconcileFocus
   -- Geometry can change without a widget-specific mouse handler, for example
   -- when a command opens a dialog. Refresh after the following Brick draw.
   case ev of
     AppEvent _ -> pure ()
     _ -> queueMainViewRefresh imageService
+
+-- | Pointer input leaves keyboard navigation without stealing the ring for
+-- the clicked widget. Blank terminal cells arrive as raw Vty mouse events.
+dismissFocusForPointer :: BrickEvent (MName St) Event -> EventM (MName St) St ()
+dismissFocusForPointer = \case
+  MouseDown{} -> dismissKeyboardFocus
+  MouseUp{} -> dismissKeyboardFocus
+  VtyEvent V.EvMouseDown{} -> dismissKeyboardFocus
+  _ -> pure ()
 
 {- | The function that handles the local events. This handles
 events defined in the type class `Drawable`
@@ -108,9 +122,16 @@ handleGlobalEvent imageService = \case
   -- Toggle modes. See `Mode` for details
   VtyEvent (V.EvKey (V.KChar '`') []) ->
     closeMenu >> clearCommandEdit >> switchMode $> True
-  -- Submit command
+  -- Submit command only while its editor owns input.  In normal mode Enter is
+  -- routed to the keyboard-focus controller instead.
   VtyEvent (V.EvKey V.KEnter []) ->
-    submitCommandEdit >> clearCommandEdit $> True
+    (,) <$> use stMode <*> use stDialogView >>= \case
+      (CommandMode, Nothing) -> do
+        menuOpen <- use (stMenu . msWidgets . to (not . null))
+        if menuOpen
+          then pure False
+          else submitCommandEdit >> clearCommandEdit $> True
+      _ -> pure False
   _ ->
     pure False
  where
@@ -303,3 +324,4 @@ handleStartEvent = do
       <> "\n"
       <> "- Image format: "
       <> show (Term.deduceFormat termType)
+  reconcileFocus

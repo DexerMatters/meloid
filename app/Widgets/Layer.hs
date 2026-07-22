@@ -2,6 +2,7 @@
 module Widgets.Layer (
   LayerName (..),
   activeLayerNames,
+  activeFocusLayerNames,
   activeOccluderNames,
 ) where
 
@@ -9,8 +10,8 @@ import Brick.Widgets.Center qualified as C
 import Data.Maybe (mapMaybe)
 import Lens.Micro ((^.))
 import Types
-import Widgets.Lists (drawMenuLayer)
-import Widgets.Views (drawDialogView, drawView)
+import Widgets.Lists (drawMenuLayer, menuFocusChildren)
+import Widgets.Views (dialogFocusChildren, drawDialogView, drawView, viewFocusChildren)
 
 data LayerName
   = ViewLayer ViewName
@@ -27,13 +28,20 @@ instance Drawable St LayerName where
   layerSurface layer@(DialogLayer _) = Just (mName layer)
   layerSurface layer@MenuLayer = Just (mName layer)
   layerSurface _ = Nothing
+  focusChildren (ViewLayer view) st = viewFocusChildren view st
+  focusChildren (DialogLayer view) st = dialogFocusChildren view st
+  focusChildren MenuLayer st = menuFocusChildren st
   variant (ViewLayer view) = viewIndex view
   variant (DialogLayer view) = 100 + viewIndex view
   variant MenuLayer = 200
 
 -- | Top-level layers in Brick's topmost-first order.
 activeLayerNames :: St -> [MName St]
-activeLayerNames st =
+activeLayerNames = activeFocusLayerNames
+
+-- | Layers that can own keyboard focus.
+activeFocusLayerNames :: St -> [MName St]
+activeFocusLayerNames st =
   menuLayer
     <> maybe [] (pure . mName . DialogLayer) (st ^. stDialogView)
     <> maybe [] (pure . mName . ViewLayer) (st ^. stCurrentView)

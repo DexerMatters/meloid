@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | This module provides views for the application.
@@ -14,6 +13,8 @@ module Widgets.Views (
   DebugViewport (..),
   drawView,
   drawDialogView,
+  viewFocusChildren,
+  dialogFocusChildren,
 ) where
 
 import Brick
@@ -47,12 +48,44 @@ drawView MainView st =
 drawView DebugView st = drawNamed st DebugViewport
 drawView _ _ = W.emptyWidget
 
+-- | The document-order focus children for each top-level view.  Layout
+-- elements expand themselves recursively, so this remains independent of a
+-- user's configured panel tree.
+viewFocusChildren :: ViewName -> St -> [MName St]
+viewFocusChildren MainView _ =
+  [ mName RewindButton
+  , mName PlayButton
+  , mName ForwardButton
+  , mName VolumeBar
+  , mName SongProgressBar
+  , mName (ElementName [])
+  ]
+viewFocusChildren DebugView _ = [mName DebugViewport]
+viewFocusChildren _ _ = []
+
 drawDialogView :: ViewName -> St -> Widget (MName St)
 drawDialogView WelcomeDialog st =
   drawWelcomeDialog st
 drawDialogView SimpleDialog st =
   drawSimpleDialog st
 drawDialogView _ _ = W.emptyWidget
+
+dialogFocusChildren :: ViewName -> St -> [MName St]
+dialogFocusChildren WelcomeDialog st =
+  skipButton <> previousButton <> nextButton
+ where
+  page = fromMaybe 1 (st ^? stDialog .? dsPage)
+  skipButton
+    | page < 3 = [mName SkipButton]
+    | otherwise = []
+  previousButton
+    | page > 1 = [mName PrevButton]
+    | otherwise = []
+  nextButton
+    | page < 3 = [mName NextButton]
+    | otherwise = [mName FinishButton]
+dialogFocusChildren SimpleDialog _ = [mName OkButton]
+dialogFocusChildren _ _ = []
 
 drawWelcomeDialog :: St -> Widget (MName St)
 drawWelcomeDialog st =
@@ -116,15 +149,20 @@ instance Drawable St DebugViewport where
           : reverse
             [ W.withAttr (attrName attrStyle) $ W.strWrap msg
             | (logLevel, msg) <- st ^. stLogs
-            , let attrStyle = case logLevel of
-                    Debug -> "debugLog"
-                    Info -> "infoLog"
-                    Warn -> "warnLog"
-                    Error -> "errorLog"
+            , let attrStyle =
+                    case logLevel of
+                      Debug -> "debugLog"
+                      Info -> "infoLog"
+                      Warn -> "warnLog"
+                      Error -> "errorLog"
             ]
   parent _ = Just (ParentView DebugView)
   onMouseScrollUp _ = Just $ scrollViewportBy (mName DebugViewport) (-1)
   onMouseScrollDown _ = Just $ scrollViewportBy (mName DebugViewport) 1
+  focusBinding _ _ = Just $ FocusAdjust beginDebugScroll
+
+beginDebugScroll :: EventM (MName St) St (FocusTransaction St)
+beginDebugScroll = scrollTransaction (mName DebugViewport)
 
 drawSongPanel :: St -> Widget (MName St)
 drawSongPanel st =

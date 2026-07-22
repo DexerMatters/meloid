@@ -49,6 +49,12 @@ instance Drawable St HeaderName where
           widgets -> W.vLimit 1 $ W.hBox widgets
   parent (HeaderName path) = Just . ParentName . mName $ ElementNode path
   variant (HeaderName path) = pathVariant path
+  focusChildren (HeaderName path) st =
+    case st ^. stLayoutElement path of
+      Nothing -> []
+      Just element
+        | not (isExpanded path st) -> [collapseName path element]
+        | otherwise -> collapseName path element : headerFocusControls path st element
 
 instance Drawable St CollapsingSwitch where
   draw (CollapsingSwitch path) st =
@@ -182,3 +188,33 @@ toggleCollapsed path =
   use (stIsTriggered $ mName $ ElementNode path) >>= \case
     True -> untrigger $ mName $ ElementNode path
     False -> trigger $ mName $ ElementNode path
+
+collapseName :: ElementPath -> LayoutElement -> MName St
+collapseName path = \case
+  ETabs{} -> mName $ CollapsingSwitch' path
+  _ -> mName $ CollapsingSwitch path
+
+headerFocusControls :: ElementPath -> St -> LayoutElement -> [MName St]
+headerFocusControls path st = \case
+  ECurrentQueue ->
+    [mName ShuffleButton, mName ReverseOrderButton, mName ClearButton]
+  EEqualizer ->
+    [mName $ EQSwitch path, mName $ EQApplyButton path]
+      <> case st ^. stUnsavedEQ of
+        Just _ -> [mName $ EQSaveButton path]
+        Nothing -> []
+  ETabs children ->
+    (mName . TabButton <$> childPaths children path)
+      <> maybe [] (\(childPath, child) -> headerFocusControls childPath st child) (currentTabElement st path children)
+  _ -> []
+
+isExpanded :: ElementPath -> St -> Bool
+isExpanded path st =
+  case st ^. stLayoutElement path of
+    Just element ->
+      case element of
+        EHBox{} -> True
+        EVBox{} -> True
+        EPlaceholder -> True
+        _ -> not $ st ^. stIsTriggered (mName $ ElementNode path)
+    Nothing -> True

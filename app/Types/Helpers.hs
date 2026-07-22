@@ -31,8 +31,8 @@ import Lens.Micro (to, (<&>), (^.), _Just)
 import Lens.Micro.Type (SimpleGetter)
 import Network.MPD qualified as MPD
 import Text.Read (readMaybe)
-import Types.Model
 import Types.Identity (MName)
+import Types.Model
 import Types.Schemas
 import Utils (formatSecs)
 

@@ -55,6 +55,7 @@ defaultTheme =
     (fg primary)
     [ (a "button", defAttr `withForeColor` primary `withStyle` underline)
     , (a "iconButton", defAttr `withForeColor` primary `withStyle` bold)
+    , (a "focus", black `on` accent2)
     , (a "button" <> a "pressed", black `on` primary)
     , (a "iconButton" <> a "pressed", black `on` accent)
     , (a "focused", white `on` secondary)

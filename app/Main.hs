@@ -88,6 +88,7 @@ defaultSt =
         EditSt
           { _esCommand = (E.editor (mName CommandEditor) Nothing "")
           }
+    , _stFocus = emptyFocusState
     , _stPressed = Nothing
     , _stLastLeftClick = Nothing
     , _stTriggerItem = Set.empty

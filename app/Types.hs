@@ -2,6 +2,7 @@
 module Types (
   module Types.Identity,
   module Types.Core,
+  module Types.Focus,
   module Types.Model,
   module Types.Helpers,
   module Types.Actions,
@@ -12,6 +13,7 @@ module Types (
 
 import Types.Actions
 import Types.Core
+import Types.Focus
 import Types.Helpers
 import Types.Identity
 import Types.Image

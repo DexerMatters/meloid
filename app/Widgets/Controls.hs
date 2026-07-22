@@ -28,6 +28,7 @@ import Brick
 import Brick.Main qualified as M
 import Brick.Widgets.Core qualified as W
 import Control.Monad (forM_, when)
+import Data.Functor (($>))
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Vector qualified as Vec
@@ -107,6 +108,7 @@ instance Drawable St VolumeBar where
     Just $
       use (stConfig . csVolume) >>= setVolumeBarValue . (subtract 1) . fromIntegral
   parent _ = Just (ParentView MainView)
+  focusBinding _ _ = Just $ FocusAdjust beginVolumeAdjustment
 
 instance Drawable St SongProgressBar where
   draw _ st = Widget Greedy Fixed $ do
@@ -142,6 +144,7 @@ instance Drawable St SongProgressBar where
         Nothing ->
           pure ()
   parent _ = Just (ParentView MainView)
+  focusBinding _ _ = Just $ FocusAdjust beginSongProgressAdjustment
 
 instance Drawable St EQGainBarsViewport where
   draw (EQGainBarsViewport path) st =
@@ -158,6 +161,10 @@ instance Drawable St EQGainBarsViewport where
       M.hScrollBy (viewportScroll (mName $ EQGainBarsViewport path)) eqGainBarsViewportStep
   parent (EQGainBarsViewport path) = Just . ParentName . mName $ ElementNode path
   variant (EQGainBarsViewport path) = pathVariant path
+  focusChildren (EQGainBarsViewport path) st =
+    [ mName $ EQGainBar path i
+    | i <- zipWith const [0 ..] (st ^. stCurrentEQ . eqGains)
+    ]
 
 instance Drawable St EQGainBar where
   draw (EQGainBar _ i) st =
@@ -207,6 +214,7 @@ instance Drawable St EQGainBar where
     Just $ currentEQGainBarValue i >>= setEQGainBarValue i . (subtract 1)
   parent (EQGainBar path _) = Just (ParentName $ mName $ EQGainBarsViewport path)
   variant (EQGainBar _ i) = i
+  focusBinding (EQGainBar _ i) _ = Just $ FocusAdjust (beginEQGainAdjustment i)
 
 instance Drawable St PlayButton where
   draw _ st =
@@ -396,6 +404,79 @@ setEQGainBarValue bandIndex gain = do
   updateGain i oldGain
     | i == bandIndex = snappedGain
     | otherwise = oldGain
+
+beginVolumeAdjustment :: EventM (MName St) St (FocusTransaction St)
+beginVolumeAdjustment = do
+  initialVolume <- use (stConfig . csVolume)
+  pure $
+    FocusTransaction
+      { adjustFocus = \case
+          FocusUp -> nudge 1
+          FocusRight -> nudge 1
+          FocusDown -> nudge (-1)
+          FocusLeft -> nudge (-1)
+      , commitFocusAdjustment = pure ()
+      , cancelFocusAdjustment = setVolumeBarValue (fromIntegral initialVolume)
+      }
+ where
+  nudge delta =
+    use (stConfig . csVolume) >>= \volume ->
+      setVolumeBarValue (fromIntegral volume + delta) $> True
+
+beginSongProgressAdjustment :: EventM (MName St) St (FocusTransaction St)
+beginSongProgressAdjustment = do
+  originalPreview <- use stSongProgressPreview
+  pure $
+    FocusTransaction
+      { adjustFocus = adjustProgress
+      , commitFocusAdjustment = commitSongProgressPreview
+      , cancelFocusAdjustment = stSongProgressPreview .= originalPreview
+      }
+ where
+  adjustProgress direction =
+    use stShownCurrentTime >>= \case
+      Nothing -> pure False
+      Just (current, total)
+        | total <= 0 -> pure False
+        | otherwise -> do
+            let delta = case direction of
+                  FocusLeft -> -5
+                  FocusRight -> 5
+                  FocusUp -> 30
+                  FocusDown -> -30
+                next = max 0 $ min total (current + delta)
+            stSongProgressPreview .= Just (next, total)
+            pure True
+
+commitSongProgressPreview :: EventM (MName St) St ()
+commitSongProgressPreview = do
+  preview' <- use stSongProgressPreview
+  stSongProgressPreview .= Nothing
+  case preview' of
+    Nothing -> pure ()
+    Just (target, total) -> do
+      stPlaying . psCurrentTime .= Just (target, total)
+      use stCurrentSongPos >>= mapM_ (\position -> sendRequest $ MPDOperation [MPD.seek position target])
+
+beginEQGainAdjustment :: Int -> EventM (MName St) St (FocusTransaction St)
+beginEQGainAdjustment bandIndex = do
+  originalConfigs <- use (stConfig . csEQConfigs)
+  originalUnsaved <- use stUnsavedEQ
+  pure $
+    FocusTransaction
+      { adjustFocus = \case
+          FocusUp -> nudge 1
+          FocusDown -> nudge (-1)
+          _ -> pure False
+      , commitFocusAdjustment = pure ()
+      , cancelFocusAdjustment = do
+          stConfig . csEQConfigs .= originalConfigs
+          stUnsavedEQ .= originalUnsaved
+      }
+ where
+  nudge delta =
+    currentEQGainBarValue bandIndex >>= \gain ->
+      setEQGainBarValue bandIndex (gain + delta) $> True
 
 centerText :: Int -> String -> String
 centerText width s =

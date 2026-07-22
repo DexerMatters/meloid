@@ -17,6 +17,7 @@ module Widgets.Common (
   makeBar',
   openMenu,
   scrollViewportBy,
+  scrollTransaction,
   strClippedWithEllipsis,
   strFillingAvailableWidth,
   viewportWithBar,
@@ -28,6 +29,7 @@ import Brick qualified as B
 import Brick.Main qualified as M
 import Brick.Widgets.Core qualified as W
 import Control.Monad (when)
+import Data.Functor (($>))
 import Data.List (intercalate)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Typeable (Typeable)
@@ -43,7 +45,7 @@ pressed.
 -}
 drawButton :: St -> MName St -> String -> Widget (MName St)
 drawButton st name label =
-  W.withDefAttr (attrName "button" <> pressedAttr st name) $
+  W.withAttr (attrName "button" <> pressedAttr st name) $
     W.str label
 
 {- | Draws an icon button which is similar to a button but it has a
@@ -229,6 +231,29 @@ scrollViewportBy ::
   MName St -> Int -> EventM (MName St) St ()
 scrollViewportBy name delta =
   M.vScrollBy (B.viewportScroll name) delta
+
+-- | Enter-driven scrolling with a reversible viewport position.  Widgets
+-- that have no focusable rows (for example song info and the debug log) use
+-- this instead of exposing their scrollbar itself as a focus target.
+scrollTransaction :: MName St -> EventM (MName St) St (FocusTransaction St)
+scrollTransaction name = do
+  startingViewport <- B.lookupViewport name
+  pure $
+    FocusTransaction
+      { adjustFocus = \case
+          FocusUp -> scrollViewportBy name (-1) $> True
+          FocusDown -> scrollViewportBy name 1 $> True
+          _ -> pure False
+      , commitFocusAdjustment = pure ()
+      , cancelFocusAdjustment =
+          case startingViewport of
+            Nothing -> pure ()
+            Just starting ->
+              B.lookupViewport name >>= \case
+                Nothing -> pure ()
+                Just current ->
+                  M.vScrollBy (B.viewportScroll name) (starting ^. B.vpTop - current ^. B.vpTop)
+      }
 
 -- | A vertical viewport with a scroll bar.
 viewportWithBar :: St -> MName St -> Widget (MName St) -> Widget (MName St)
