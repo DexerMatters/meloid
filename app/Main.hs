@@ -4,7 +4,7 @@
 -- | The entry point of the program
 module Main (main) where
 
-import Attrs (defaultTheme)
+import Attrs (ColorMode (..), defaultTheme)
 import Brick qualified as B
 import Brick.BChan
 import Brick.Main as M
@@ -26,6 +26,7 @@ import Data.Vector qualified as Vec
 import Graphics.Vty qualified as V
 import Graphics.Vty.CrossPlatform qualified as Vty
 import Handle
+import Lens.Micro ((^.))
 import Lens.Micro.Mtl
 import Sys qualified
 import Types
@@ -37,18 +38,23 @@ drawUI :: St -> [Widget (MName St)]
 drawUI st =
   map (drawMName st) (Names.activeLayerNames st)
 
-app :: Image.ImageService -> B.AttrMap -> M.App St Event (MName St)
-app imageService attrMap =
+app :: Image.ImageService -> ColorMode -> M.App St Event (MName St)
+app imageService detectedColorMode =
   M.App
     { M.appDraw = drawUI
     , M.appStartEvent = handleStartEvent
     , M.appChooseCursor = M.showFirstCursor
-    , M.appAttrMap = const attrMap
+    , M.appAttrMap = \st ->
+        T.themeToAttrMap . defaultTheme $
+          case st ^. stConfig . csConfigs . cvColorMode of
+            CMAuto -> detectedColorMode
+            configuredColorMode -> configuredColorMode
     , M.appHandleEvent = handleEvent imageService
     }
 
 main :: IO ()
 main = do
+  terminalColorMode <- Term.deduceTerminalColorMode
   -- Event channel
   chan <- newBChan 2048
   -- Request channel (send requests to the MPD backend)
@@ -76,7 +82,7 @@ main = do
       vty
       mkVty
       (Just chan)
-      (app imageService (T.themeToAttrMap defaultTheme))
+      (app imageService terminalColorMode)
       st
   stopEQBridge
 
@@ -118,7 +124,7 @@ defaultSt =
           , _csAllAlbums = Vec.empty
           , _csConfigs =
               ConfigValue
-                { _cvColorMode = "auto"
+                { _cvColorMode = CMAuto
                 , _cvShowWelcome = True
                 , _cvEq = "default"
                 , _cvLayout = placeholderLayout

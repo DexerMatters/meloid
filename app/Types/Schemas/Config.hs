@@ -13,6 +13,7 @@ module Types.Schemas.Config (
   cvLayout,
 ) where
 
+import Attrs (ColorMode)
 import Data.Aeson qualified as JSON
 import Data.ByteString.UTF8 qualified as UTF8
 import Data.Char (toLower)
@@ -30,7 +31,7 @@ class FromString a where
 
 data ConfigValue = ConfigValue
   { _cvShowWelcome :: Bool
-  , _cvColorMode :: String
+  , _cvColorMode :: ColorMode
   , _cvEq :: String
   , _cvLayout :: LayoutElement
   }

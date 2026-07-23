@@ -94,6 +94,7 @@ executable meloid
     process,
     transformers,
     template-haskell,
+    unix,
 
     -- Terminal UI packages
     brick,
