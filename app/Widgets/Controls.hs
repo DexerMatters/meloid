@@ -211,10 +211,17 @@ instance Drawable St PlayButton where
           else "||"
       )
   onMouseLeftUp _ = Just $ \_ -> do
-    stPlaying . psPaused %= not
-    paused <- use $ stPlaying . psPaused
-    sendRequest . MPDOperation . pure $
-      MPD.pause paused
+    stopped <- use $ stPlaying . psStopped
+    if stopped
+      then do
+        current <- use $ stPlaying . psCurrentSong
+        stPlaying . psPaused .= False
+        stPlaying . psStopped .= False
+        sendRequest $ MPDOperation [MPD.play $ current >>= MPD.sgIndex]
+      else do
+        stPlaying . psPaused %= not
+        paused <- use $ stPlaying . psPaused
+        sendRequest . MPDOperation . pure $ MPD.pause paused
   parent _ = Just (ParentView MainView)
 
 instance Drawable St RewindButton where
@@ -222,6 +229,7 @@ instance Drawable St RewindButton where
   onMouseLeftUp _ = Just $ \_ -> do
     current <- use $ stPlaying . psCurrentSong
     stPlaying . psPaused .= False
+    stPlaying . psStopped .= False
     sendRequest $ MPDOperation [MPD.play $ current >>= MPD.sgIndex]
   parent _ = Just (ParentView MainView)
 
@@ -229,6 +237,7 @@ instance Drawable St ForwardButton where
   draw _ st = drawIconButton st (mName ForwardButton) ">>"
   onMouseLeftUp _ = Just $ \_ -> do
     stPlaying . psPaused .= False
+    stPlaying . psStopped .= False
     sendRequest $ MPDOperation [MPD.next]
   parent _ = Just (ParentView MainView)
 

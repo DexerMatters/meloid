@@ -213,7 +213,7 @@ handleAppEvent imageService = \case
       refreshImages imageService
   -- For now, we only get the volume from MPD status
   UpdateStatus status ->
-    stConfig . csVolume ?.= MPD.stVolume status
+    applyPlaybackStatus status
   -- Update the current song.
   UpdateSong song ->
     applyCurrentSong imageService song
@@ -224,7 +224,7 @@ handleAppEvent imageService = \case
   -- Update the current queue state. This updates both the
   -- volume and the current queue.
   UpdateCurrentQueueState status song songs -> do
-    stConfig . csVolume ?.= MPD.stVolume status
+    applyPlaybackStatus status
     stPlaying . psCurrentQueue .= songs
     applyCurrentSong imageService song
   -- Update the post-EQ PipeWire spectrum without involving MPD state.
@@ -293,6 +293,21 @@ applyCurrentSong :: Image.ImageService -> Maybe MPD.Song -> EventM (MName St) St
 applyCurrentSong imageService song = do
   stPlaying . psCurrentSong .= song
   queueMainViewRefresh imageService
+
+applyPlaybackStatus :: MPD.Status -> EventM (MName St) St ()
+applyPlaybackStatus status = do
+  stConfig . csVolume ?.= MPD.stVolume status
+  stPlaying . psCurrentTime .= MPD.stTime status
+  case MPD.stState status of
+    MPD.Playing -> do
+      stPlaying . psPaused .= False
+      stPlaying . psStopped .= False
+    MPD.Paused -> do
+      stPlaying . psPaused .= True
+      stPlaying . psStopped .= False
+    MPD.Stopped -> do
+      stPlaying . psPaused .= True
+      stPlaying . psStopped .= True
 
 toggleDebugView :: Image.ImageService -> EventM (MName St) St ()
 toggleDebugView imageService =

@@ -62,6 +62,7 @@ module Types.Model (
   psCurrentTime,
   psCurrentQueue,
   psPaused,
+  psStopped,
   -- SpectrumSt lenses
   ssLevels,
   -- EditSt' lenses
@@ -146,6 +147,7 @@ data PlayingSt = PlayingSt
   , _psCurrentTime :: Maybe (Double, Double)
   , _psCurrentQueue :: Vec.Vector MPD.Song
   , _psPaused :: Bool
+  , _psStopped :: Bool
   }
 
 makeLenses ''PlayingSt

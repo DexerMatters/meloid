@@ -34,6 +34,7 @@ import Data.Char (isSpace)
 import Data.List
 import Numeric (showFFloat)
 import Text.Printf (printf)
+import Types.Schemas.EQConfig (eqGainLimitDb)
 
 formatSecs :: Integer -> String
 formatSecs totalSecs = show mins ++ ":" ++ ensureTwoDigits secs
@@ -117,7 +118,7 @@ eqGainBarLimitDb :: Double
 eqGainBarLimitDb = 12
 
 eqGainBarNudgeLimitDb :: Double
-eqGainBarNudgeLimitDb = 20
+eqGainBarNudgeLimitDb = eqGainLimitDb
 
 gainBarThumbY :: Int -> Double -> Int
 gainBarThumbY sliderHeight gain =

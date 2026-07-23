@@ -7,11 +7,25 @@ It handles every request sent from Brick's main thread
 to archieve the communication between the application and
 the MPD server.
 -}
-module Sys (musicPlayerThread) where
+module Sys (
+  musicPlayerThread,
+  shutdownMusic,
+) where
 
 import Brick.BChan
 import Compat.Software
-import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent (
+  MVar,
+  ThreadId,
+  forkFinally,
+  killThread,
+  modifyMVar_,
+  newEmptyMVar,
+  newMVar,
+  putMVar,
+  readMVar,
+  threadDelay,
+ )
 import Control.Concurrent.STM (TVar, atomically, writeTVar)
 import Control.Exception (AsyncException (ThreadKilled), SomeException, throwIO, try)
 import Control.Monad
@@ -87,13 +101,14 @@ songProgressLoopThread ip port evChan = withMPD ip port $
 {- | The loop that updates the current song using `idle`
 command
 -}
-songChangeLoopThread :: String -> String -> BChan Event -> IO (MPD.Response ())
-songChangeLoopThread ip port evChan = withMPD ip port $ forever $ do
+songChangeLoopThread :: EQBridge -> String -> String -> BChan Event -> IO (MPD.Response ())
+songChangeLoopThread bridge ip port evChan = withMPD ip port $ forever $ do
   _ <- MPD.idle [MPD.PlayerS]
   status <- MPD.status
   curSong <- MPD.currentSong
   liftIO $ do
-    void $ runExceptT routeMPDToEQ
+    runExceptT (routeMPDToEQ bridge) >>=
+      either (logEv evChan Warn "PipeWire" . ("Failed to route MPD: " <>)) (const $ pure ())
     postEvent $ UpdateStatus status
     postEvent $ UpdateSong curSong
  where
@@ -101,15 +116,15 @@ songChangeLoopThread ip port evChan = withMPD ip port $ forever $ do
   postEvent = writeBChan evChan
 
 -- | The main loop of the MPD backend
-musicPlayerThread :: BChan Request -> BChan Event -> TVar Bool -> IO ()
-musicPlayerThread reqChan evChan spectrumEnabled = do
+musicPlayerThread :: EQBridge -> BChan Request -> BChan Event -> TVar Bool -> IO ()
+musicPlayerThread bridge reqChan evChan spectrumEnabled = do
   configs <- runExceptT (Stored.read Stored.Configs) >>= either panic pure
   eqConfigs <- runExceptT (Stored.read Stored.EQConfigs) >>= either panic pure
   log "Config is loaded successfully"
   log "EQ configs are loaded successfully"
   let EQConfigValue presets = eqConfigs
       initialEQ = Map.findWithDefault (EQConfigSpecs $ replicate (length eqFrequencies) 0) (configs ^. cvEq) presets
-  runExceptT (startEQBridge initialEQ) >>= either (panic . ("Failed to start EQ bridge: " <>)) (const $ pure ())
+  runExceptT (startEQBridge bridge initialEQ) >>= either (panic . ("Failed to start EQ bridge: " <>)) (const $ pure ())
 
   (ip, port) <- liftIO getMPDEndpoint
   mounts <-
@@ -118,7 +133,7 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
       Left err -> warn ("Failed to query MPD mounts: " <> show err) >> pure []
   forM_ mounts $ \(mount, storage) ->
     log $ "Detected MPD mount " <> show mount <> ": " <> storage
-  runExceptT routeMPDToEQ >>= either (warn . ("Failed to route MPD: " <>)) (const $ pure ())
+  runExceptT (routeMPDToEQ bridge) >>= either (warn . ("Failed to route MPD: " <>)) (const $ pure ())
   log $
     "Using MPD endpoint: "
       <> unlines
@@ -148,6 +163,7 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
 
   _ <- withMPD ip port $ MPD.rescan Nothing
 
+  workers <- newMVar []
   forever $ do
     req <- readBChan reqChan
 
@@ -158,23 +174,18 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
       LogConfig level msg ->
         logEv evChan level "Setup" msg >> pure Nothing
       SignalInit ->
-        forkIO
-          ( songChangeLoopThread ip port evChan >>= \case
-              Right _ -> pure ()
-              Left err -> panic $ "Error while starting song change loop: \n" <> show err
-          )
-          >> forkIO
-            ( songProgressLoopThread ip port evChan >>= \case
-                Right _ -> pure ()
-                Left err -> panic $ "Error while starting song progress loop: \n" <> show err
-            )
+        startWorkers workers
+          [ reportWorker "song change" $ songChangeLoopThread bridge ip port evChan
+          , reportWorker "song progress" $ songProgressLoopThread ip port evChan
+          ]
           >> pure Nothing
       SignalQuit -> do
         atomically $ writeTVar spectrumEnabled False
-        liftIO stopEQBridge
-        res <- Just <$> withMPD ip port MPD.stop
+        stopWorkers workers
+        liftIO (shutdownMusic bridge) >>=
+          mapM_ (warn . ("Shutdown cleanup failed: " <>))
         postEvent Halt
-        pure res
+        pure Nothing
       SignalCurrentQueue -> do
         snapshot <- withMPD ip port $ do
           status <- MPD.status
@@ -242,7 +253,13 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
         panic $ "An error occurred with MPD:\n" <> show x
       _ ->
         pure ()
+
  where
+  reportWorker name action =
+    action >>= \case
+      Right _ -> pure ()
+      Left err -> panic $ "Error in " <> name <> " loop:\n" <> show err
+
   panic :: String -> IO a
   panic s = logEv evChan Error "MPD" s >> throwIO ThreadKilled
 
@@ -264,3 +281,34 @@ musicPlayerThread reqChan evChan spectrumEnabled = do
       Right res -> pure res
 
   postEvent = writeBChan evChan
+
+data Worker = Worker ThreadId (MVar ())
+
+startWorkers :: MVar [Worker] -> [IO ()] -> IO ()
+startWorkers workers actions =
+  modifyMVar_ workers $ \current ->
+    if null current
+      then
+        traverse
+          (\action -> do
+              done <- newEmptyMVar
+              Worker <$> forkFinally action (const $ putMVar done ()) <*> pure done
+          )
+          actions
+      else pure current
+
+stopWorkers :: MVar [Worker] -> IO ()
+stopWorkers workers =
+  modifyMVar_ workers $ \current -> do
+    forM_ current $ \(Worker thread _) -> killThread thread
+    forM_ current $ \(Worker _ done) -> readMVar done
+    pure []
+
+-- | Restore PipeWire before stopping MPD. This is safe to call repeatedly,
+-- which lets the UI's finalizer cover exits that bypass 'SignalQuit'.
+shutdownMusic :: EQBridge -> IO [String]
+shutdownMusic bridge = do
+  bridgeErrors <- either pure (const []) <$> stopEQBridge bridge
+  (ip, port) <- getMPDEndpoint
+  mpdErrors <- either (pure . show) (const []) <$> withMPD ip port MPD.stop
+  pure $ bridgeErrors <> mpdErrors

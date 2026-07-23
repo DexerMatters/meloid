@@ -369,6 +369,7 @@ queueSong song = do
 playQueueSong :: Int -> EventM (MName St) St ()
 playQueueSong i = do
   stPlaying . psPaused .= False
+  stPlaying . psStopped .= False
   sendRequest . MPDOperation . pure $ MPD.play (Just i)
 
 selectEQConfig :: Int -> EventM (MName St) St ()

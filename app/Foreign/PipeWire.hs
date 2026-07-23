@@ -21,7 +21,7 @@ foreign import ccall unsafe "meloid_eq_stop"
 foreign import ccall unsafe "meloid_eq_set_gains"
   c_setEQ :: Ptr CDouble -> CSize -> IO CInt
 
-foreign import ccall unsafe "meloid_eq_spectrum"
+foreign import ccall safe "meloid_eq_spectrum"
   c_spectrum :: Ptr CDouble -> CSize -> IO CInt
 
 foreign import ccall unsafe "meloid_eq_error"

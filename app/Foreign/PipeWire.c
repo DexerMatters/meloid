@@ -1,5 +1,6 @@
 #include <math.h>
 #include <pthread.h>
+#include <stdint.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
@@ -9,12 +10,18 @@
 #include <pipewire/pipewire.h>
 
 #define BANDS 18
+#define EQ_GAIN_LIMIT_DB 20.0
 #define SPECTRUM_BANDS 64
 #define SPECTRUM_SAMPLES 2048
 
 struct biquad {
   float b0, b1, b2, a1, a2;
   float x1, x2, y1, y2;
+};
+
+struct spectrum_sample {
+  _Atomic unsigned long sequence;
+  _Atomic float channels[2];
 };
 
 struct bridge {
@@ -26,11 +33,13 @@ struct bridge {
   _Atomic bool running;
   _Atomic unsigned gains_version;
   _Atomic double gains[BANDS];
-  _Atomic float samples[SPECTRUM_SAMPLES];
+  struct spectrum_sample samples[SPECTRUM_SAMPLES];
   _Atomic unsigned long sample_index;
   unsigned applied_version;
   _Atomic double rate;
   struct biquad filters[2][BANDS];
+  double spectrum_window[SPECTRUM_SAMPLES];
+  double spectrum_window_sum;
   char error[256];
 };
 
@@ -61,15 +70,19 @@ static void rebuild_filters(struct bridge *data, double rate) {
     double alpha = sin(omega) / (2.0 * 2.871);
     double amplitude = pow(10.0, gain / 40.0);
     double a0 = 1.0 + alpha / amplitude;
-    struct biquad coefficients = {
-      .b0 = (1.0 + alpha * amplitude) / a0,
-      .b1 = (-2.0 * cos(omega)) / a0,
-      .b2 = (1.0 - alpha * amplitude) / a0,
-      .a1 = (-2.0 * cos(omega)) / a0,
-      .a2 = (1.0 - alpha / amplitude) / a0,
-    };
-    for (unsigned channel = 0; channel < 2; channel++)
-      data->filters[channel][band] = coefficients;
+    float b0 = (float) ((1.0 + alpha * amplitude) / a0);
+    float b1 = (float) ((-2.0 * cos(omega)) / a0);
+    float b2 = (float) ((1.0 - alpha * amplitude) / a0);
+    float a1 = (float) ((-2.0 * cos(omega)) / a0);
+    float a2 = (float) ((1.0 - alpha / amplitude) / a0);
+    for (unsigned channel = 0; channel < 2; channel++) {
+      struct biquad *filter = &data->filters[channel][band];
+      filter->b0 = b0;
+      filter->b1 = b1;
+      filter->b2 = b2;
+      filter->a1 = a1;
+      filter->a2 = a2;
+    }
   }
 }
 
@@ -85,26 +98,38 @@ static inline float process_band(struct biquad *filter, float sample) {
 
 static void process(void *userdata, struct spa_io_position *position) {
   struct bridge *data = userdata;
-  float *in_left = pw_filter_get_dsp_buffer(data->inputs[0], position->clock.duration);
-  float *in_right = pw_filter_get_dsp_buffer(data->inputs[1], position->clock.duration);
-  float *out_left = pw_filter_get_dsp_buffer(data->outputs[0], position->clock.duration);
-  float *out_right = pw_filter_get_dsp_buffer(data->outputs[1], position->clock.duration);
-  if (!in_left || !in_right || !out_left || !out_right)
+  uint32_t frames =
+    position->clock.duration > UINT32_MAX ? UINT32_MAX : (uint32_t) position->clock.duration;
+  float *in_left = pw_filter_get_dsp_buffer(data->inputs[0], frames);
+  float *in_right = pw_filter_get_dsp_buffer(data->inputs[1], frames);
+  float *out_left = pw_filter_get_dsp_buffer(data->outputs[0], frames);
+  float *out_right = pw_filter_get_dsp_buffer(data->outputs[1], frames);
+  if (!out_left && !out_right)
     return;
 
   double rate = position->clock.rate.num ? (double) position->clock.rate.denom / position->clock.rate.num : 48000.0;
   rebuild_filters(data, rate);
-  for (uint32_t frame = 0; frame < position->clock.duration; frame++) {
-    float left = in_left[frame];
-    float right = in_right[frame];
+  for (uint32_t frame = 0; frame < frames; frame++) {
+    float left = in_left ? in_left[frame] : 0.0f;
+    float right = in_right ? in_right[frame] : 0.0f;
     for (unsigned band = 0; band < BANDS; band++) {
       left = process_band(&data->filters[0][band], left);
       right = process_band(&data->filters[1][band], right);
     }
-    out_left[frame] = left;
-    out_right[frame] = right;
-    unsigned long index = atomic_fetch_add_explicit(&data->sample_index, 1, memory_order_relaxed);
-    atomic_store_explicit(&data->samples[index % SPECTRUM_SAMPLES], (left + right) * 0.5f, memory_order_relaxed);
+    left = isfinite(left) ? fmaxf(-1.0f, fminf(1.0f, left)) : 0.0f;
+    right = isfinite(right) ? fmaxf(-1.0f, fminf(1.0f, right)) : 0.0f;
+    if (out_left)
+      out_left[frame] = left;
+    if (out_right)
+      out_right[frame] = right;
+
+    unsigned long index = atomic_load_explicit(&data->sample_index, memory_order_relaxed);
+    struct spectrum_sample *sample = &data->samples[index % SPECTRUM_SAMPLES];
+    atomic_store_explicit(&sample->sequence, 0, memory_order_release);
+    atomic_store_explicit(&sample->channels[0], left, memory_order_relaxed);
+    atomic_store_explicit(&sample->channels[1], right, memory_order_relaxed);
+    atomic_store_explicit(&sample->sequence, index + 1, memory_order_release);
+    atomic_store_explicit(&data->sample_index, index + 1, memory_order_release);
   }
 }
 
@@ -126,6 +151,15 @@ int meloid_eq_start(void) {
   bridge.applied_version = atomic_load_explicit(&bridge.gains_version, memory_order_relaxed) - 1;
   atomic_store_explicit(&bridge.rate, 0.0, memory_order_relaxed);
   atomic_store_explicit(&bridge.sample_index, 0, memory_order_relaxed);
+  bridge.spectrum_window_sum = 0.0;
+  for (unsigned sample = 0; sample < SPECTRUM_SAMPLES; sample++) {
+    atomic_store_explicit(&bridge.samples[sample].sequence, 0, memory_order_relaxed);
+    atomic_store_explicit(&bridge.samples[sample].channels[0], 0.0f, memory_order_relaxed);
+    atomic_store_explicit(&bridge.samples[sample].channels[1], 0.0f, memory_order_relaxed);
+    bridge.spectrum_window[sample] =
+      0.5 * (1.0 - cos(2.0 * M_PI * sample / (SPECTRUM_SAMPLES - 1)));
+    bridge.spectrum_window_sum += bridge.spectrum_window[sample];
+  }
   bridge.error[0] = '\0';
   pw_init(NULL, NULL);
   bridge.loop = pw_main_loop_new(NULL);
@@ -143,6 +177,8 @@ int meloid_eq_start(void) {
       PW_KEY_NODE_NAME, "meloid_eq_filter",
       PW_KEY_NODE_DESCRIPTION, "Meloid EQ",
       PW_KEY_NODE_AUTOCONNECT, "false",
+      PW_KEY_NODE_DRIVER, "false",
+      PW_KEY_NODE_PAUSE_ON_IDLE, "true",
       PW_KEY_NODE_VIRTUAL, "false",
       PW_KEY_NODE_DONT_RECONNECT, "true",
       NULL),
@@ -180,7 +216,7 @@ int meloid_eq_start(void) {
   const struct spa_pod *params[] = {
     spa_process_latency_build(&builder, SPA_PARAM_ProcessLatency, &SPA_PROCESS_LATENCY_INFO_INIT(.ns = 10 * SPA_NSEC_PER_MSEC)),
   };
-  if (pw_filter_connect(bridge.filter, PW_FILTER_FLAG_RT_PROCESS, params, 1) < 0) {
+  if (pw_filter_connect(bridge.filter, PW_FILTER_FLAG_NONE, params, 1) < 0) {
     set_error("Failed to connect the PipeWire EQ filter");
     pw_filter_destroy(bridge.filter);
     pw_main_loop_destroy(bridge.loop);
@@ -217,6 +253,12 @@ int meloid_eq_set_gains(const double *gains, size_t count) {
     set_error("EQ gain count does not match the filter bands");
     return -1;
   }
+  for (unsigned band = 0; band < BANDS; band++) {
+    if (!isfinite(gains[band]) || fabs(gains[band]) > EQ_GAIN_LIMIT_DB) {
+      set_error("EQ gains must be finite and between -20 and +20 dB");
+      return -1;
+    }
+  }
   for (unsigned band = 0; band < BANDS; band++)
     atomic_store_explicit(&bridge.gains[band], gains[band], memory_order_relaxed);
   atomic_fetch_add_explicit(&bridge.gains_version, 1, memory_order_release);
@@ -226,28 +268,61 @@ int meloid_eq_set_gains(const double *gains, size_t count) {
 int meloid_eq_spectrum(double *levels, size_t count) {
   if (!atomic_load_explicit(&bridge.running, memory_order_acquire) || count < SPECTRUM_BANDS)
     return 0;
-  unsigned long end = atomic_load_explicit(&bridge.sample_index, memory_order_acquire);
-  if (end < SPECTRUM_SAMPLES)
-    return 0;
-  double rate = atomic_load_explicit(&bridge.rate, memory_order_relaxed);
-  rate = rate > 0 ? rate : 48000.0;
-  double windows[SPECTRUM_SAMPLES];
-  double window_sum = 0.0;
-  for (unsigned sample = 0; sample < SPECTRUM_SAMPLES; sample++) {
-    windows[sample] = 0.5 * (1.0 - cos(2.0 * M_PI * sample / (SPECTRUM_SAMPLES - 1)));
-    window_sum += windows[sample];
+  float samples[2][SPECTRUM_SAMPLES];
+  bool copied = false;
+  for (unsigned attempt = 0; attempt < 3 && !copied; attempt++) {
+    unsigned long end = atomic_load_explicit(&bridge.sample_index, memory_order_acquire);
+    if (end < SPECTRUM_SAMPLES)
+      return 0;
+    copied = true;
+    for (unsigned offset = 0; offset < SPECTRUM_SAMPLES; offset++) {
+      unsigned long absolute = end - SPECTRUM_SAMPLES + offset;
+      struct spectrum_sample *sample = &bridge.samples[absolute % SPECTRUM_SAMPLES];
+      unsigned long before = atomic_load_explicit(&sample->sequence, memory_order_acquire);
+      if (before != absolute + 1) {
+        copied = false;
+        break;
+      }
+      samples[0][offset] = atomic_load_explicit(&sample->channels[0], memory_order_relaxed);
+      samples[1][offset] = atomic_load_explicit(&sample->channels[1], memory_order_relaxed);
+      if (atomic_load_explicit(&sample->sequence, memory_order_acquire) != before) {
+        copied = false;
+        break;
+      }
+    }
   }
+  if (!copied)
+    return 0;
+
+  double rate = atomic_load_explicit(&bridge.rate, memory_order_relaxed);
+  rate = isfinite(rate) && rate > 1000.0 ? rate : 48000.0;
 
   for (unsigned band = 0; band < SPECTRUM_BANDS; band++) {
     double frequency = 30.0 * pow(18000.0 / 30.0, ((double) band + 0.5) / SPECTRUM_BANDS);
-    double real = 0.0, imaginary = 0.0;
+    double phase_step = 2.0 * M_PI * frequency / rate;
+    double step_real = cos(phase_step);
+    double step_imaginary = sin(phase_step);
+    double oscillator_real = 1.0;
+    double oscillator_imaginary = 0.0;
+    double real[2] = { 0.0, 0.0 };
+    double imaginary[2] = { 0.0, 0.0 };
     for (unsigned sample = 0; sample < SPECTRUM_SAMPLES; sample++) {
-      double phase = 2.0 * M_PI * frequency * sample / rate;
-      double value = atomic_load_explicit(&bridge.samples[(end - SPECTRUM_SAMPLES + sample) % SPECTRUM_SAMPLES], memory_order_relaxed) * windows[sample];
-      real += value * cos(phase);
-      imaginary += value * sin(phase);
+      for (unsigned channel = 0; channel < 2; channel++) {
+        double value = samples[channel][sample] * bridge.spectrum_window[sample];
+        real[channel] += value * oscillator_real;
+        imaginary[channel] += value * oscillator_imaginary;
+      }
+      double next_real =
+        oscillator_real * step_real - oscillator_imaginary * step_imaginary;
+      oscillator_imaginary =
+        oscillator_real * step_imaginary + oscillator_imaginary * step_real;
+      oscillator_real = next_real;
     }
-    double amplitude = 2.0 * sqrt(real * real + imaginary * imaginary) / window_sum;
+    double power =
+      0.5
+      * (real[0] * real[0] + imaginary[0] * imaginary[0]
+        + real[1] * real[1] + imaginary[1] * imaginary[1]);
+    double amplitude = 2.0 * sqrt(power) / bridge.spectrum_window_sum;
     levels[band] = fmax(-90.0, 20.0 * log10(fmax(1.0e-9, amplitude)));
   }
   return 1;

@@ -47,13 +47,13 @@ defaultTheme mode =
     , (a "unsaved", defAttr `withStyle` italic)
     , (a "dialog", defAttr)
     , (a "header", currentAttr `withForeColor` primary `withStyle` bold)
-    , (a "label", contrastText `on` accentBackground)
-    , (a "bottomLabel", (contrastText `on` accentBackground) `withStyle` bold)
+    , (a "label", contrastText `on` accent)
+    , (a "bottomLabel", (contrastText `on` accent) `withStyle` bold)
     , (a "meta", currentAttr `withForeColor` accent `withStyle` italic)
     , (a "text", defAttr `withForeColor` accent)
     , (a "textOnTabs", defAttr `withForeColor` accent `withStyle` underline)
-    , (a "scrollBarThumb", currentAttr `withForeColor` accent `withStyle` bold)
-    , (a "scrollBarTrack", currentAttr)
+    , (a "scrollBarThumb", defAttr `withForeColor` accent `withStyle` bold)
+    , (a "scrollBarTrack", defAttr)
     , (a "progressBarIncomplete", canvas `on` secondary)
     , (a "progressBarComplete", primary `on` secondary)
     , -- Equalizer
@@ -89,7 +89,9 @@ defaultTheme mode =
     | isLight = white
     | otherwise = black
 
-  contrastText = black
+  contrastText
+    | isLight = white
+    | otherwise = hex2RGB 0x202124
 
   secondary
     | isLight = hex2RGB 0xC8C8C8
