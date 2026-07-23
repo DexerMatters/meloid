@@ -1,7 +1,6 @@
-
 # Style guide
 
-File common settings
+## File common settings
 
 - Use `LF` line endings with `2-space` tab-width
 - Leave **exactly one empty line** at the end of a file
@@ -10,11 +9,14 @@ File common settings
 
 - Avoid *anti-patterns*
 - Do not use the `OVERLAPPING`, `OVERLAPPABLE`, `OVERLAPS` and `INCOHERENT` pragmas
+- Only one praga/option per pragma caluse (do not put multiple behind one `{-# ... #-}`)
 - Always compile with `-Wall`, as in the `meloid.cabal` file
 - Never use unboxed types, as they are *behavior-volatile* between versions
+- All complete function defintions should be surrounded by 1 empty line above and below, these empty lines can overlap
 
 ## Modules
 
+- All modules should have explicit exports
 - Do not *re-export* imported modules
 - if there are **multiple** imported/exported names:
   - the first name should be on the same line as the `(`
@@ -24,6 +26,7 @@ File common settings
   - the names should be aligned to the first letter of the first name
 - No trailing `,` after the last name
 - *exported* names should be listed in order of definition
+- there must be at least one empty line after the module declaration, and one after the list of imports
 
 ## Naming
 
@@ -66,15 +69,18 @@ File common settings
 ## `data` and `deriving`:
 
 - When defining multiple constructors, put each on a new line
-- Align all `|` characters with the `=`
+- All `|` and `=` characters should be indented 1 level and aligned
+- Alignment rules for record syntax with multiple records:
+  - All `,` characters should be aligned with
+    the opening and closing braces `{}` and indented 1 level
+  - All constructors whould be aligned
 - put the `deriving` keyword on a new line
 - use separate lines or `deriving` keywords:
   - when using **Quantified Constraints**, **Deriving Strategies** or `via`
   - a group of **default-derivable** classes
-  - a group of `Functor`, `Foldable`and `Traversable`
-- Enclose **single** derived typeclasses in prentheses `()`
-- Do not use **deriving extensions** other than `DeriveFunctor`, `DeriveFoldable`, `DeriveTraversable`
-  use **deriving strategies** and `DerivingVia` instead
+  - a group of typeclasses from **deriving extnsions**
+- Enclose **single** derived typeclasses in parentheses `()`
+- Do not use the **deriving extensions** for  `Data` and `Typeable`, use **deriving strategies** and `DerivingVia` instead
 - Do not use **redundant derivations** (e.g.: `Traversable` implies `Functor` and `Traversable`)
 - Use `QuantifiedConstraints` (which implies `ExplicitForAll`) where applicable
 - Using `UndecidableInstances` is forbidden
